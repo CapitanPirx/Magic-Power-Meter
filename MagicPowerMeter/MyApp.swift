@@ -1,9 +1,13 @@
 import SwiftUI
 
-@main struct MyApp: App {
+@main @MainActor struct MagicPowerMeterApp: App {
+    @State private var model = MeterModel()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Window("Magic Power Meter", id: "meter") {
+            ContentView(model: model)
+                .preferredColorScheme(.dark)
         }
+        .defaultSize(width: 1060, height: 1000)
     }
 }
