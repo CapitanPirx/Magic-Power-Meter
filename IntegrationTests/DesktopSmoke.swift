@@ -46,6 +46,7 @@ struct DesktopSmoke {
 			do {
 				try await serialTests()
 				try await automaticSelectionTests()
+				try modelTextTests()
 				try await modelTests()
 				print("PASS: serial PTY framing, readiness, busy port, disconnect, manual failure, timeout, automatic first-valid selection; demo session, retry, timer, CSV/log export, write errors, history")
 				exit(0)
@@ -55,6 +56,40 @@ struct DesktopSmoke {
 			}
 		}
 		RunLoop.main.run()
+	}
+
+	@MainActor static func modelTextTests() throws {
+		let model = MeterModel()
+		defer { model.disconnect() }
+		try require(model.connectedPort == "Не подключён", "Initial port label")
+		try require(model.connectionStatus == "Выберите источник и подключитесь", "Initial connection status")
+		try require(model.conditions.map(\.name) == ["База", "Условие 1"], "Default condition names")
+		try require(model.selectedName == "Итерация не выбрана", "Unselected iteration label")
+		try require(SerialSettings().summary == "9600 бод · 8N1 · без flow control", "Serial summary")
+		try require(SerialParity.allCases.map(\.rawValue) == ["Нет", "Чётная", "Нечётная"], "Parity labels")
+		for parity in SerialParity.allCases {
+			try require(SerialParity(rawValue: parity.rawValue) == parity, "Parity raw-value round trip")
+		}
+		try require(SerialParity(rawValue: "N") == nil, "Unknown parity label accepted")
+		model.minutes = 0
+		model.seconds = 0
+		model.createSession()
+		try require(model.error == "Укажите ненулевую длительность; секунды должны быть от 0 до 59.", "Duration error")
+		model.seconds = 3
+		model.createSession()
+		try require(model.session?.conditions.first?.name == "Одиночный замер", "Single condition label")
+		try require(model.selectedName == "Одиночный замер · итерация 1", "Selected iteration label")
+		model.createSession()
+		try require(model.error == "Сначала завершите текущую сессию и нажмите «Новый замер».", "Existing session error")
+		model.finalize()
+		try require(model.notice == "CSV сформирован в памяти. Выберите папку для сохранения на диск.", "CSV notice")
+		model.newSession()
+		model.comparison = true
+		model.conditions[0].name = " "
+		model.createSession()
+		try require(model.error == "Задайте имена условий и от 1 до 50 итераций для каждого.", "Condition error")
+		model.disconnect()
+		try require(model.connectionStatus == "Отключено", "Disconnect status")
 	}
 
 	@MainActor static func serialTests() async throws {

@@ -4,6 +4,42 @@ import XCTest
 final class PowerMeterCoreTests: XCTestCase {
 	let date = Date(timeIntervalSince1970: 1_700_000_000)
 
+	func testSourceAndLineEndingRawValuesRemainCompatible() {
+		XCTAssertEqual(MeasurementSource.serial.rawValue, "ДАТЧИК")
+		XCTAssertEqual(MeasurementSource.demo.rawValue, "ДЕМО — СИНТЕТИЧЕСКИЕ ДАННЫЕ")
+		XCTAssertEqual(MeasurementSource(rawValue: "ДАТЧИК"), .serial)
+		XCTAssertEqual(MeasurementSource(rawValue: "ДЕМО — СИНТЕТИЧЕСКИЕ ДАННЫЕ"), .demo)
+		XCTAssertNil(MeasurementSource(rawValue: "demo"))
+		XCTAssertEqual(LineEnding.allCases.map(\.rawValue), ["LF / CRLF", "CRLF", "CR"])
+		for ending in LineEnding.allCases {
+			XCTAssertEqual(LineEnding(rawValue: ending.rawValue), ending)
+		}
+		XCTAssertNil(LineEnding(rawValue: "LF"))
+	}
+
+	func testParserErrorsAndMeasurementDiagnosticsKeepExactText() throws {
+		XCTAssertEqual(SensorParser.parse(Data([0xFF])), .invalid("Строка не является UTF-8"))
+		XCTAssertEqual(SensorParser.parse(Data("broken".utf8)), .invalid("Ожидается count;voltage_V;current_mA;power_W"))
+		XCTAssertEqual(SensorParser.parse(Data("1;5;2;-1".utf8)), .invalid("Некорректное или отрицательное показание"))
+		var decoder = StreamDecoder()
+		XCTAssertEqual(decoder.receive(Data(repeating: 65, count: 4097), uptime: 0, date: date).lines.first?.value,
+					   .invalid("Строка длиннее 4096 байт"))
+		XCTAssertEqual(MeasurementError.invalidState.errorDescription, "Сначала остановите текущую итерацию или создайте новую сессию.")
+		XCTAssertEqual(MeasurementError.invalidIteration.errorDescription, "Итерация недоступна или уже завершена.")
+		var session = makeSession()
+		try session.start(IterationKey(conditionID: session.conditions[0].id, number: 1), uptime: 0, date: date)
+		decoder = StreamDecoder()
+		session.receive(decoder.receive(Data("count;voltage_V;current_mA;power_W\n10;5;2;1\n12;5;2;2\n1;5;2;3\nbroken\n".utf8),
+										uptime: 1, date: date))
+		XCTAssertEqual(session.active?.warnings, [
+			"Заголовок / возможный reset датчика на 1,000 с",
+			"Пропущены строки: 1", "Счётчик датчика сброшен или повторён",
+			"1,000 с: Ожидается count;voltage_V;current_mA;power_W"
+		])
+		session.stop(uptime: 2, date: date)
+		XCTAssertEqual(session.attempts[0].stopReason, "Остановлено вручную — исключено из расчётов")
+	}
+
 	func testParserAndChunkBoundaries() {
 		var decoder = StreamDecoder()
 		XCTAssertTrue(decoder.receive(Data("count;voltage_V;current_mA;power_W\r".utf8), uptime: 0, date: date).lines.isEmpty)
