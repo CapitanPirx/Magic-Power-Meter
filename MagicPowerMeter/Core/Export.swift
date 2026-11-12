@@ -71,6 +71,7 @@ enum MeasurementExport {
     static func writeLogs(_ session: MeasurementSession, folder: URL, key: IterationKey? = nil) throws -> URL {
         let directory = folder.appendingPathComponent(filePrefix(session) + "-raw", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let dateFormatter = ISO8601DateFormatter()
         for attempt in session.attempts where key == nil || attempt.key == key {
             guard let conditionIndex = session.conditions.firstIndex(where: { $0.id == attempt.key.conditionID }) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -82,7 +83,7 @@ enum MeasurementExport {
             for chunk in attempt.chunks {
                 offsets.append(["offset": raw.count, "bytes": chunk.data.count,
                                 "elapsed_seconds": chunk.elapsed,
-                                "received_at": ISO8601DateFormatter().string(from: chunk.date)])
+                                "received_at": dateFormatter.string(from: chunk.date)])
                 raw.append(chunk.data)
             }
             try raw.write(to: directory.appendingPathComponent(stem + ".txt"), options: .atomic)
@@ -91,8 +92,8 @@ enum MeasurementExport {
                 "session_id": session.id.uuidString, "incomplete_result": session.incomplete,
                 "condition": condition.name, "iteration": attempt.key.number, "attempt": attempt.number,
                 "complete": attempt.complete, "included_in_calculations": attempt.complete,
-                "started_at": ISO8601DateFormatter().string(from: attempt.startedAt),
-                "ended_at": attempt.endedAt.map { ISO8601DateFormatter().string(from: $0) } ?? "",
+                "started_at": dateFormatter.string(from: attempt.startedAt),
+                "ended_at": attempt.endedAt.map { dateFormatter.string(from: $0) } ?? "",
                 "duration_seconds": attempt.elapsed, "target_seconds": session.duration,
                 "stop_detected_after_seconds": attempt.stoppedAfter ?? attempt.elapsed,
                 "valid_samples": attempt.samples.count, "warnings": attempt.warnings,
