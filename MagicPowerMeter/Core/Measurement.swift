@@ -52,7 +52,7 @@ struct MeasurementAttempt: Identifiable, Sendable {
     var stopReason: String?
 
     var mean: Double? {
-        Numeric.mean(samples.map { $0.reading.power })
+        Numeric.mean(samples.lazy.map { $0.reading.power })
     }
 
     var frequency: Double? {
@@ -93,7 +93,7 @@ struct MeasurementSession: Sendable {
 
     var active: MeasurementAttempt? { activeIndex.map { attempts[$0] } }
     var totalIterations: Int { conditions.reduce(0) { $0 + $1.iterations } }
-    var completedIterations: Int { attempts.filter(\.complete).count }
+    var completedIterations: Int { attempts.lazy.filter(\.complete).count }
     var incomplete: Bool { completedIterations != totalIterations }
 
     func completed(_ key: IterationKey) -> MeasurementAttempt? {
@@ -112,7 +112,7 @@ struct MeasurementSession: Sendable {
               condition.iterations > 0, (1...condition.iterations).contains(key.number), completed(key) == nil else {
             throw MeasurementError.invalidIteration
         }
-        let number = attempts.filter { $0.key == key }.count + 1
+        let number = attempts.lazy.filter { $0.key == key }.count + 1
         attempts.append(MeasurementAttempt(key: key, number: number, startedAt: date, startUptime: uptime,
                                            connectionDescription: connectionDescription ?? self.connectionDescription))
         activeIndex = attempts.count - 1
@@ -197,7 +197,7 @@ struct MeasurementSession: Sendable {
     }
 
     func mean(conditionID: UUID) -> Double? {
-        let values = attempts.filter { $0.complete && $0.key.conditionID == conditionID }.compactMap(\.mean)
+        let values = attempts.lazy.filter { $0.complete && $0.key.conditionID == conditionID }.compactMap(\.mean)
         return Numeric.mean(values)
     }
 
@@ -214,11 +214,14 @@ enum MeasurementError: LocalizedError {
 }
 
 enum Numeric {
-    static func mean(_ values: [Double]) -> Double? {
-        guard !values.isEmpty else { return nil }
-        return values.enumerated().reduce(0) { mean, item in
-            mean + (item.element - mean) / Double(item.offset + 1)
+    static func mean<Values: Sequence>(_ values: Values) -> Double? where Values.Element == Double {
+        var mean = 0.0
+        var count = 0
+        for value in values {
+            count += 1
+            mean += (value - mean) / Double(count)
         }
+        return count == 0 ? nil : mean
     }
 
     static func text(_ value: Double?) -> String {

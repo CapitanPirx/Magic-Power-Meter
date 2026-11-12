@@ -63,6 +63,9 @@ xcodebuild -project MagicPowerMeter.xcodeproj -scheme MagicPowerMeter \
 
 Core tests run independently of the UI with Swift Package Manager. A desktop integration
 smoke test uses a POSIX pseudoterminal and the explicit demo source (no sensor is opened).
+Means stream values without intermediate arrays or cached statistics, retaining the
+original incremental calculation order. Regression tests pin floating-point results,
+iteration inclusion and exact CSV/raw-log metadata bytes.
 Hardware validation
 requires the actual Arduino/INA219 device; demo validation does not establish hardware
 compatibility. Automatic iPhone scenarios, XCUITest and CI orchestration are outside this MVP.
