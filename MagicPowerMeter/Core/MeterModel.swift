@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Observation
 
@@ -23,14 +22,17 @@ final class MeterModel {
 	var selected: IterationKey?
 	var selectedAttemptID: UUID?
 	var saveRaw = true
-	var folder: URL?
+	var folder: URL? {
+		get { exportFolder.url }
+		set { exportFolder.url = newValue }
+	}
 	var pendingWrites = 0
 	var generatedCSV: Data?
-	private let transport = SerialTransport()
-	private let exportQueue = DispatchQueue(label: "dev.magicpowermeter.export", qos: .utility)
+	private let transport: any SensorTransport
+	private let exporter: any MeasurementExporting
+	private let exportFolder: ExportFolder
 	private var timer: Timer?
 	private var generation = UUID()
-	private var folderScoped = false
 	private var measurementActivity: NSObjectProtocol?
 
 	var recording: Bool { session?.active != nil }
@@ -51,12 +53,16 @@ final class MeterModel {
 		return Strings.Model.selectedIteration(condition: session?.conditions.first { $0.id == selected.conditionID }?.name ?? "", number: selected.number)
 	}
 
-	init() { refreshPorts() }
+	init(transport: any SensorTransport, exporter: any MeasurementExporting, exportFolder: ExportFolder) {
+		self.transport = transport
+		self.exporter = exporter
+		self.exportFolder = exportFolder
+		refreshPorts()
+	}
 
 	isolated deinit {
 		timer?.invalidate()
 		if let measurementActivity { ProcessInfo.processInfo.endActivity(measurementActivity) }
-		if folderScoped { folder?.stopAccessingSecurityScopedResource() }
 		transport.disconnect()
 	}
 
@@ -185,7 +191,7 @@ final class MeterModel {
 		} else {
 			notice = Strings.Model.iterationFinished
 		}
-		if saveRaw, let session, folder != nil { write(session: session, result: false, logs: true) }
+		if saveRaw, let session, folder != nil { write(session: session, contents: .logs(nil)) }
 	}
 
 	func select(_ key: IterationKey) {
@@ -217,7 +223,7 @@ final class MeterModel {
 		guard let session else { return }
 		generatedCSV = MeasurementExport.csv(session)
 		notice = Strings.Export.csvGenerated(needsFolder: folder == nil)
-		if folder != nil { write(session: session, result: true, logs: saveRaw) }
+		if folder != nil { write(session: session, contents: saveRaw ? .resultAndLogs : .result) }
 	}
 
 	func newSession() {
@@ -244,16 +250,7 @@ final class MeterModel {
 	}
 
 	func chooseFolder() {
-		let panel = NSOpenPanel()
-		panel.canChooseDirectories = true
-		panel.canChooseFiles = false
-		panel.canCreateDirectories = true
-		panel.prompt = Strings.Export.chooseFolder
-		panel.message = Strings.Export.folderMessage
-		guard panel.runModal() == .OK, let url = panel.url else { return }
-		if folderScoped { folder?.stopAccessingSecurityScopedResource() }
-		folderScoped = url.startAccessingSecurityScopedResource()
-		folder = url
+		guard exportFolder.choose() else { return }
 		notice = Strings.Export.folderSelected
 	}
 
@@ -262,7 +259,7 @@ final class MeterModel {
 		if folder == nil { chooseFolder() }
 		guard folder != nil else { return }
 		error = nil
-		write(session: session, result: true, logs: false)
+		write(session: session, contents: .result)
 	}
 
 	func exportLogs(selectedOnly: Bool = false) {
@@ -271,7 +268,7 @@ final class MeterModel {
 		if folder == nil { chooseFolder() }
 		guard folder != nil else { return }
 		error = nil
-		write(session: snapshot, result: false, logs: true, key: selectedOnly ? selected : nil)
+		write(session: snapshot, contents: .logs(selectedOnly ? selected : nil))
 	}
 
 	private func endActivity() {
@@ -281,25 +278,17 @@ final class MeterModel {
 		}
 	}
 
-	private func write(session: MeasurementSession, result: Bool, logs: Bool, key: IterationKey? = nil) {
+	private func write(session: MeasurementSession, contents: ExportContents) {
 		guard let folder else { return }
+		let request = ExportRequest(session: session, folder: folder, contents: contents)
 		pendingWrites += 1
-		exportQueue.async {
-			do {
-				var paths: [String] = []
-				if result { paths.append(try MeasurementExport.writeResult(session, folder: folder).path) }
-				if logs { paths.append(try MeasurementExport.writeLogs(session, folder: folder, key: key).path) }
-				let message = Strings.Export.saved(paths: paths)
-				Task { @MainActor in
-					self.pendingWrites -= 1
-					self.notice = message
-				}
-			} catch {
-				let message = error.localizedDescription
-				Task { @MainActor in
-					self.pendingWrites -= 1
-					self.error = Strings.Export.failed(message)
-				}
+		exporter.write(request) { result in
+			self.pendingWrites -= 1
+			switch result {
+			case .success(let urls):
+				self.notice = Strings.Export.saved(paths: urls.map(\.path))
+			case .failure(let error):
+				self.error = Strings.Export.failed(error.localizedDescription)
 			}
 		}
 	}

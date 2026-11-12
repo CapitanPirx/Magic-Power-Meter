@@ -3,55 +3,7 @@ import Darwin
 import IOKit
 import IOKit.serial
 
-enum SerialParity: RawRepresentable, CaseIterable, Sendable {
-	case none, even, odd
-
-	var rawValue: String {
-		switch self {
-		case .none: return Strings.Connection.parityNone
-		case .even: return Strings.Connection.parityEven
-		case .odd: return Strings.Connection.parityOdd
-		}
-	}
-
-	init?(rawValue: String) {
-		switch rawValue {
-		case Strings.Connection.parityNone: self = .none
-		case Strings.Connection.parityEven: self = .even
-		case Strings.Connection.parityOdd: self = .odd
-		default: return nil
-		}
-	}
-}
-
-struct SerialSettings: Equatable, Sendable {
-	var port = ""
-	var baud = 9600
-	var dataBits = 8
-	var parity: SerialParity = .none
-	var stopBits = 1
-	var ending: LineEnding = .lf
-	var timeout: TimeInterval = 8
-
-	var summary: String {
-		Strings.Connection.summary(baud: baud, dataBits: dataBits,
-								  parity: parity == .none ? "N" : parity == .even ? "E" : "O", stopBits: stopBits)
-	}
-}
-
-enum TransportEvent: Sendable {
-	case preparing(String)
-	case ready(String)
-	case batch(SensorBatch)
-	case failure(String)
-}
-
-struct SerialFailure: LocalizedError, Sendable {
-	let message: String
-	var errorDescription: String? { message }
-}
-
-final class SerialTransport: @unchecked Sendable {
+final class SerialTransport: SensorTransport, @unchecked Sendable {
 	private let queue = DispatchQueue(label: "dev.magicpowermeter.serial", qos: .userInitiated)
 	private let portsProvider: @Sendable () throws -> [String]
 	private var timer: DispatchSourceTimer?

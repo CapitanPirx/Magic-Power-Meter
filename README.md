@@ -54,7 +54,7 @@ it has no network capability and no external dependencies.
 ```sh
 swift test
 swiftc -parse-as-library MagicPowerMeter/Core/*.swift MagicPowerMeter/SerialTransport.swift \
-  MagicPowerMeter/MeterModel.swift IntegrationTests/DesktopSmoke.swift -o .build/desktop-smoke
+  IntegrationTests/DesktopSmoke.swift -o .build/desktop-smoke
 .build/desktop-smoke
 xcodebuild -project MagicPowerMeter.xcodeproj -scheme MagicPowerMeter \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath build \
@@ -71,6 +71,13 @@ User-facing Russian text lives in `MagicPowerMeter/Core/Strings.swift`: typed co
 and parameterized functions, not localization keys. Protocol markers, JSON keys, paths
 and SF Symbol identifiers stay with their owning code. Test expectations remain independent
 literal values. SwiftPM and the synchronized Xcode source group include the file automatically.
+`Core/MeterModel.swift` owns measurement flow and observable presentation state, depending
+on `SensorTransport` and `MeasurementExporting` rather than serial or file implementations.
+`SerialTransport` owns POSIX/IOKit work; `FileMeasurementExporter` serializes immutable
+session/folder requests and propagates original errors. `ExportFolder` owns selection
+and security-scoped access. `MyApp.swift` composes the production services and native
+folder picker. The core has no AppKit/SwiftUI dependency; model tests use fake services
+to exercise connection generations, pending exports, snapshots, retries and cancellation.
 Hardware validation
 requires the actual Arduino/INA219 device; demo validation does not establish hardware
 compatibility. Automatic iPhone scenarios, XCUITest and CI orchestration are outside this MVP.

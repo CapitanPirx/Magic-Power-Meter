@@ -59,7 +59,8 @@ struct DesktopSmoke {
 	}
 
 	@MainActor static func modelTextTests() throws {
-		let model = MeterModel()
+		let model = MeterModel(transport: SerialTransport(), exporter: FileMeasurementExporter(),
+							   exportFolder: ExportFolder(picker: { nil }))
 		defer { model.disconnect() }
 		try require(model.connectedPort == "Не подключён", "Initial port label")
 		try require(model.connectionStatus == "Выберите источник и подключитесь", "Initial connection status")
@@ -162,7 +163,8 @@ struct DesktopSmoke {
 	}
 
 	@MainActor static func modelTests() async throws {
-		let model = MeterModel()
+		let model = MeterModel(transport: SerialTransport(), exporter: FileMeasurementExporter(),
+							   exportFolder: ExportFolder(picker: { nil }))
 		model.demo = true
 		model.minutes = 0
 		model.seconds = 3

@@ -25,7 +25,12 @@ final class FileMeasurementExporter: MeasurementExporting {
 
 	func write(_ request: ExportRequest,
 			   completion: @escaping @MainActor @Sendable (Result<[URL], Error>) -> Void) {
+		// Keep access alive even if the selected folder changes before this queued write finishes.
+		let scoped = request.folder.startAccessingSecurityScopedResource()
 		queue.async {
+			defer {
+				if scoped { request.folder.stopAccessingSecurityScopedResource() }
+			}
 			do {
 				let urls = try Self.writeFiles(request)
 				Task { @MainActor in completion(.success(urls)) }
