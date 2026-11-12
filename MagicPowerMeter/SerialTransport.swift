@@ -3,8 +3,25 @@ import Darwin
 import IOKit
 import IOKit.serial
 
-enum SerialParity: String, CaseIterable, Sendable {
-	case none = "Нет", even = "Чётная", odd = "Нечётная"
+enum SerialParity: RawRepresentable, CaseIterable, Sendable {
+	case none, even, odd
+
+	var rawValue: String {
+		switch self {
+		case .none: return Strings.Connection.parityNone
+		case .even: return Strings.Connection.parityEven
+		case .odd: return Strings.Connection.parityOdd
+		}
+	}
+
+	init?(rawValue: String) {
+		switch rawValue {
+		case Strings.Connection.parityNone: self = .none
+		case Strings.Connection.parityEven: self = .even
+		case Strings.Connection.parityOdd: self = .odd
+		default: return nil
+		}
+	}
 }
 
 struct SerialSettings: Equatable, Sendable {
@@ -17,7 +34,8 @@ struct SerialSettings: Equatable, Sendable {
 	var timeout: TimeInterval = 8
 
 	var summary: String {
-		"\(baud) бод · \(dataBits)\(parity == .none ? "N" : parity == .even ? "E" : "O")\(stopBits) · без flow control"
+		Strings.Connection.summary(baud: baud, dataBits: dataBits,
+								  parity: parity == .none ? "N" : parity == .even ? "E" : "O", stopBits: stopBits)
 	}
 }
 
@@ -63,7 +81,7 @@ final class SerialTransport: @unchecked Sendable {
 		let matching = IOServiceMatching(kIOSerialBSDServiceValue)
 		let status = IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator)
 		guard status == KERN_SUCCESS else {
-			throw SerialFailure(message: "Не удалось получить список serial-портов: IOKit \(status)")
+			throw SerialFailure(message: Strings.Connection.discoveryFailed(status))
 		}
 		defer { IOObjectRelease(iterator) }
 		var ports: [String] = []
@@ -95,7 +113,7 @@ final class SerialTransport: @unchecked Sendable {
 			self.isDemo = demo
 			self.decoder = StreamDecoder(ending: settings.ending)
 			if demo {
-				self.path = "Демонстрационный источник"
+				self.path = Strings.Connection.demoName
 				self.validated = true
 				self.demoCount = 0
 				self.nextDemo = MonotonicTime.now
@@ -153,20 +171,20 @@ final class SerialTransport: @unchecked Sendable {
 		while candidateIndex < candidates.count {
 			path = candidates[candidateIndex]
 			candidateIndex += 1
-			callback?(.preparing("Подготовка \(path) · ожидаем корректные данные, возможен reset Arduino"))
+			callback?(.preparing(Strings.Connection.preparing(path)))
 			fd = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
 			guard fd >= 0 else {
-				candidateErrors.append("\(path): \(String(cString: strerror(errno)))")
+				candidateErrors.append(Strings.Connection.portError(path: path, reason: String(cString: strerror(errno))))
 				continue
 			}
 			if ioctl(fd, TIOCEXCL) < 0 {
-				candidateErrors.append("\(path): не удалось получить исключительный доступ: \(String(cString: strerror(errno)))")
+				candidateErrors.append(Strings.Connection.portError(path: path, reason: Strings.Connection.exclusiveAccessFailed(String(cString: strerror(errno)))))
 				closePort()
 				continue
 			}
 			var attributes = termios()
 			guard tcgetattr(fd, &attributes) == 0 else {
-				candidateErrors.append("\(path): tcgetattr: \(String(cString: strerror(errno)))")
+				candidateErrors.append(Strings.Connection.portError(path: path, reason: Strings.Connection.attributesFailed(String(cString: strerror(errno)))))
 				closePort()
 				continue
 			}
@@ -181,7 +199,7 @@ final class SerialTransport: @unchecked Sendable {
 			let speed = speed_t(settings.baud)
 			guard cfsetispeed(&attributes, speed) == 0, cfsetospeed(&attributes, speed) == 0,
 				  tcsetattr(fd, TCSANOW, &attributes) == 0 else {
-				candidateErrors.append("\(path): настройка порта: \(String(cString: strerror(errno)))")
+				candidateErrors.append(Strings.Connection.portError(path: path, reason: Strings.Connection.configurationFailed(String(cString: strerror(errno)))))
 				closePort()
 				continue
 			}
@@ -189,8 +207,8 @@ final class SerialTransport: @unchecked Sendable {
 			lastValid = MonotonicTime.now
 			return true
 		}
-		let details = candidateErrors.isEmpty ? "Доступные serial-порты не найдены." : candidateErrors.joined(separator: "\n")
-		fail("Подключение не установлено.\n\(details)\nПроверьте кабель, питание и закройте CoolTerm.")
+		let details = candidateErrors.isEmpty ? Strings.Connection.noPorts : candidateErrors.joined(separator: "\n")
+		fail(Strings.Connection.connectionFailed(details))
 		return false
 	}
 
@@ -209,11 +227,11 @@ final class SerialTransport: @unchecked Sendable {
 		var descriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
 		let result = Darwin.poll(&descriptor, 1, 0)
 		if result < 0 && errno != EINTR {
-			portFailed("Ошибка чтения: \(String(cString: strerror(errno)))")
+			portFailed(Strings.Connection.readFailed(String(cString: strerror(errno))))
 			return
 		}
 		if descriptor.revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0 {
-			portFailed("Порт отключён или недоступен")
+			portFailed(Strings.Connection.unavailablePort)
 			return
 		}
 		if descriptor.revents & Int16(POLLIN) != 0 {
@@ -234,21 +252,21 @@ final class SerialTransport: @unchecked Sendable {
 				}
 				callback?(.batch(batch))
 			} else if count < 0 && errno != EAGAIN && errno != EINTR {
-				portFailed("Ошибка чтения: \(String(cString: strerror(errno)))")
+				portFailed(Strings.Connection.readFailed(String(cString: strerror(errno))))
 				return
 			}
 		}
 		if now - lastValid >= settings.timeout {
-			portFailed("За \(Int(settings.timeout)) с не получены корректные показания датчика")
+			portFailed(Strings.Connection.timeout(Int(settings.timeout)))
 		}
 	}
 
 	private func portFailed(_ reason: String) {
 		if !validated && settings.port.isEmpty {
-			candidateErrors.append("\(path): \(reason)")
+			candidateErrors.append(Strings.Connection.portError(path: path, reason: reason))
 			_ = openNext()
 		} else {
-			fail("\(path): \(reason). Переподключите порт; автоматическая подмена не выполнялась.")
+			fail(Strings.Connection.reconnect(path: path, reason: reason))
 		}
 	}
 }

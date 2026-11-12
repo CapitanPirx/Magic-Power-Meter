@@ -67,6 +67,10 @@ Means stream values without intermediate arrays or cached statistics, retaining 
 original incremental calculation order. Raw-log writes reuse a date formatter within
 each export, never across concurrent exports. Regression tests pin floating-point results,
 iteration inclusion and exact CSV/raw-log metadata bytes.
+User-facing Russian text lives in `MagicPowerMeter/Core/Strings.swift`: typed constants
+and parameterized functions, not localization keys. Protocol markers, JSON keys, paths
+and SF Symbol identifiers stay with their owning code. Test expectations remain independent
+literal values. SwiftPM and the synchronized Xcode source group include the file automatically.
 Hardware validation
 requires the actual Arduino/INA219 device; demo validation does not establish hardware
 compatibility. Automatic iPhone scenarios, XCUITest and CI orchestration are outside this MVP.

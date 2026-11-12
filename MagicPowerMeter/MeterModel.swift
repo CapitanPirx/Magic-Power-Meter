@@ -9,13 +9,13 @@ final class MeterModel {
 	var demo = false
 	var connected = false
 	var preparing = false
-	var connectedPort = "Не подключён"
-	var connectionStatus = "Выберите источник и подключитесь"
+	var connectedPort = Strings.Connection.notConnected
+	var connectionStatus = Strings.Connection.selectSource
 	var preview = ""
 	var error: String?
 	var notice: String?
 	var comparison = false
-	var conditions = [Condition(name: "База", iterations: 3), Condition(name: "Условие 1", iterations: 3)]
+	var conditions = [Condition(name: Strings.Common.base, iterations: 3), Condition(name: Strings.Common.condition(1), iterations: 3)]
 	var minutes = 3
 	var seconds = 0
 	var session: MeasurementSession?
@@ -47,8 +47,8 @@ final class MeterModel {
 		return session.completed(selected) == nil && session.source == (demo ? .demo : .serial)
 	}
 	var selectedName: String {
-		guard let selected else { return "Итерация не выбрана" }
-		return "\(session?.conditions.first { $0.id == selected.conditionID }?.name ?? "") · итерация \(selected.number)"
+		guard let selected else { return Strings.Model.noIteration }
+		return Strings.Model.selectedIteration(condition: session?.conditions.first { $0.id == selected.conditionID }?.name ?? "", number: selected.number)
 	}
 
 	init() { refreshPorts() }
@@ -88,13 +88,13 @@ final class MeterModel {
 	}
 
 	func disconnect() {
-		if recording { stop(reason: "Подключение отключено — исключено из расчётов") }
+		if recording { stop(reason: Strings.Connection.disconnectedAttempt) }
 		generation = UUID()
 		transport.disconnect()
 		connected = false
 		preparing = false
-		connectedPort = "Не подключён"
-		connectionStatus = "Отключено"
+		connectedPort = Strings.Connection.notConnected
+		connectionStatus = Strings.Connection.disconnected
 	}
 
 	private func handle(_ event: TransportEvent) {
@@ -105,7 +105,7 @@ final class MeterModel {
 			connected = true
 			preparing = false
 			connectedPort = path
-			connectionStatus = demo ? "Демонстрация · не реальные измерения" : "Данные датчика проверены · готов к измерению"
+			connectionStatus = demo ? Strings.Connection.demoReady : Strings.Connection.sensorReady
 		case .batch(let batch):
 			preview += String(decoding: batch.raw, as: UTF8.self)
 			preview = String(preview.suffix(1800))
@@ -115,30 +115,30 @@ final class MeterModel {
 		case .failure(let message):
 			connected = false
 			preparing = false
-			connectionStatus = "Нет корректных данных / ошибка подключения"
+			connectionStatus = Strings.Connection.failed
 			error = message
-			if recording { stop(reason: message + " — исключено из расчётов") }
+			if recording { stop(reason: Strings.Connection.excluded(message)) }
 		}
 	}
 
 	func createSession() {
 		guard session == nil else {
-			error = "Сначала завершите текущую сессию и нажмите «Новый замер»."
+			error = Strings.Model.existingSession
 			return
 		}
 		guard duration > 0, (0...59).contains(seconds), minutes >= 0 else {
-			error = "Укажите ненулевую длительность; секунды должны быть от 0 до 59."
+			error = Strings.Model.invalidDuration
 			return
 		}
-		let plan = comparison ? conditions : [Condition(name: "Одиночный замер", iterations: 1)]
+		let plan = comparison ? conditions : [Condition(name: Strings.Common.singleMeasurement, iterations: 1)]
 		guard plan.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (1...50).contains($0.iterations) }),
 			  !plan.isEmpty, !comparison || plan.count >= 2 else {
-			error = "Задайте имена условий и от 1 до 50 итераций для каждого."
+			error = Strings.Model.invalidConditions
 			return
 		}
 		session = MeasurementSession(conditions: plan, duration: duration, timeout: settings.timeout,
 									 source: demo ? .demo : .serial,
-									 connectionDescription: "\(connectedPort) · \(settings.summary)")
+									 connectionDescription: Strings.Connection.description(port: connectedPort, settings: settings.summary))
 		selected = IterationKey(conditionID: plan[0].id, number: 1)
 		selectedAttemptID = nil
 		generatedCSV = nil
@@ -150,9 +150,9 @@ final class MeterModel {
 		guard canStart, let selected else { return }
 		do {
 			try session?.start(selected, uptime: MonotonicTime.now, date: Date(),
-							   connectionDescription: "\(connectedPort) · \(settings.summary)")
+							   connectionDescription: Strings.Connection.description(port: connectedPort, settings: settings.summary))
 			measurementActivity = ProcessInfo.processInfo.beginActivity(
-				options: [.userInitiated, .idleSystemSleepDisabled], reason: "Запись показаний Magic Power Meter")
+				options: [.userInitiated, .idleSystemSleepDisabled], reason: Strings.Model.activity)
 			selectedAttemptID = nil
 			notice = nil
 			error = nil
@@ -171,7 +171,7 @@ final class MeterModel {
 		if !recording { iterationStopped() }
 	}
 
-	func stop(reason: String = "Остановлено вручную — исключено из расчётов") {
+	func stop(reason: String = Strings.Measurement.manuallyStopped) {
 		session?.stop(uptime: MonotonicTime.now, date: Date(), reason: reason)
 		iterationStopped()
 	}
@@ -181,9 +181,9 @@ final class MeterModel {
 		timer = nil
 		endActivity()
 		if let last = session?.attempts.last, !last.complete {
-			notice = "Неполная попытка исключена из расчётов. \(last.stopReason ?? "")"
+			notice = Strings.Model.incompleteAttempt(last.stopReason ?? "")
 		} else {
-			notice = "Итерация завершена. Смените условие на телефоне и выберите следующую итерацию."
+			notice = Strings.Model.iterationFinished
 		}
 		if saveRaw, let session, folder != nil { write(session: session, result: false, logs: true) }
 	}
@@ -205,7 +205,7 @@ final class MeterModel {
 				}
 			}
 		}
-		notice = "Все итерации записаны. Нажмите «Завершить замер»."
+		notice = Strings.Model.allIterationsRecorded
 	}
 
 	func finalize() {
@@ -216,7 +216,7 @@ final class MeterModel {
 		endActivity()
 		guard let session else { return }
 		generatedCSV = MeasurementExport.csv(session)
-		notice = "CSV сформирован в памяти. " + (folder == nil ? "Выберите папку для сохранения на диск." : "")
+		notice = Strings.Export.csvGenerated(needsFolder: folder == nil)
 		if folder != nil { write(session: session, result: true, logs: saveRaw) }
 	}
 
@@ -248,13 +248,13 @@ final class MeterModel {
 		panel.canChooseDirectories = true
 		panel.canChooseFiles = false
 		panel.canCreateDirectories = true
-		panel.prompt = "Выбрать папку"
-		panel.message = "Папка для CSV и исходных текстовых логов Magic Power Meter"
+		panel.prompt = Strings.Export.chooseFolder
+		panel.message = Strings.Export.folderMessage
 		guard panel.runModal() == .OK, let url = panel.url else { return }
 		if folderScoped { folder?.stopAccessingSecurityScopedResource() }
 		folderScoped = url.startAccessingSecurityScopedResource()
 		folder = url
-		notice = "Папка выбрана. Запись будет подтверждена отдельно."
+		notice = Strings.Export.folderSelected
 	}
 
 	func exportResult() {
@@ -289,7 +289,7 @@ final class MeterModel {
 				var paths: [String] = []
 				if result { paths.append(try MeasurementExport.writeResult(session, folder: folder).path) }
 				if logs { paths.append(try MeasurementExport.writeLogs(session, folder: folder, key: key).path) }
-				let message = "Сохранено:\n" + paths.joined(separator: "\n")
+				let message = Strings.Export.saved(paths: paths)
 				Task { @MainActor in
 					self.pendingWrites -= 1
 					self.notice = message
@@ -298,7 +298,7 @@ final class MeterModel {
 				let message = error.localizedDescription
 				Task { @MainActor in
 					self.pendingWrites -= 1
-					self.error = "Не удалось сохранить файлы: \(message). Данные остались в памяти; повторите экспорт."
+					self.error = Strings.Export.failed(message)
 				}
 			}
 		}

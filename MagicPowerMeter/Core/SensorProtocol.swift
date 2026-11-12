@@ -16,7 +16,7 @@ enum SensorLine: Equatable, Sendable {
 enum SensorParser {
 	static func parse(_ data: Data) -> SensorLine {
 		guard let text = String(data: data, encoding: .utf8) else {
-			return .invalid("Строка не является UTF-8")
+			return .invalid(Strings.Measurement.invalidUTF8)
 		}
 		let fields = text.trimmingCharacters(in: .whitespacesAndNewlines)
 			.split(separator: ";", omittingEmptySubsequences: false)
@@ -25,21 +25,36 @@ enum SensorParser {
 			return .header
 		}
 		guard fields.count == 4, let count = UInt64(fields[0]) else {
-			return .invalid("Ожидается count;voltage_V;current_mA;power_W")
+			return .invalid(Strings.Measurement.expectedReading)
 		}
 		let numbers = fields.dropFirst().compactMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
 		guard numbers.count == 3, numbers.allSatisfy(\.isFinite),
 			  numbers[0] >= 0, numbers[1] >= 0, numbers[2] >= 0 else {
-			return .invalid("Некорректное или отрицательное показание")
+			return .invalid(Strings.Measurement.invalidReading)
 		}
 		return .reading(SensorReading(count: count, voltage: numbers[0], current: numbers[1], power: numbers[2]))
 	}
 }
 
-enum LineEnding: String, CaseIterable, Sendable {
-	case lf = "LF / CRLF"
-	case crlf = "CRLF"
-	case cr = "CR"
+enum LineEnding: RawRepresentable, CaseIterable, Sendable {
+	case lf, crlf, cr
+
+	var rawValue: String {
+		switch self {
+		case .lf: return Strings.Connection.lineLF
+		case .crlf: return Strings.Connection.lineCRLF
+		case .cr: return Strings.Connection.lineCR
+		}
+	}
+
+	init?(rawValue: String) {
+		switch rawValue {
+		case Strings.Connection.lineLF: self = .lf
+		case Strings.Connection.lineCRLF: self = .crlf
+		case Strings.Connection.lineCR: self = .cr
+		default: return nil
+		}
+	}
 
 	var delimiter: [UInt8] {
 		switch self {
@@ -89,7 +104,7 @@ struct StreamDecoder {
 				beganAt = nil
 				discarding = false
 			} else if pending.count > 4096 {
-				lines.append(TimedLine(value: .invalid("Строка длиннее 4096 байт"), beganAt: beganAt ?? uptime))
+				lines.append(TimedLine(value: .invalid(Strings.Measurement.oversizedLine), beganAt: beganAt ?? uptime))
 				pending.removeAll(keepingCapacity: true)
 				discarding = true
 			}

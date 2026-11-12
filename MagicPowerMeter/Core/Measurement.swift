@@ -1,8 +1,22 @@
 import Foundation
 
-enum MeasurementSource: String, Sendable {
-	case serial = "ДАТЧИК"
-	case demo = "ДЕМО — СИНТЕТИЧЕСКИЕ ДАННЫЕ"
+enum MeasurementSource: RawRepresentable, Sendable {
+	case serial, demo
+
+	var rawValue: String {
+		switch self {
+		case .serial: return Strings.Measurement.sensorSource
+		case .demo: return Strings.Measurement.demoSource
+		}
+	}
+
+	init?(rawValue: String) {
+		switch rawValue {
+		case Strings.Measurement.sensorSource: self = .serial
+		case Strings.Measurement.demoSource: self = .demo
+		default: return nil
+		}
+	}
 }
 
 struct Condition: Identifiable, Equatable, Sendable {
@@ -131,18 +145,18 @@ struct MeasurementSession: Sendable {
 		for line in batch.lines where line.beganAt >= attempts[index].startUptime {
 			switch line.value {
 			case .header:
-				attempts[index].warnings.append("Заголовок / возможный reset датчика на \(Numeric.text(elapsed)) с")
+				attempts[index].warnings.append(Strings.Measurement.header(at: elapsed))
 			case .invalid(let reason):
-				attempts[index].warnings.append("\(Numeric.text(elapsed)) с: \(reason)")
+				attempts[index].warnings.append(Strings.Measurement.invalidLine(at: elapsed, reason: reason))
 			case .reading(let reading):
 				if let previous = attempts[index].samples.last {
 					if reading.count <= previous.reading.count {
-						attempts[index].warnings.append("Счётчик датчика сброшен или повторён")
+						attempts[index].warnings.append(Strings.Measurement.counterReset)
 					} else if reading.count - previous.reading.count > 1 {
-						attempts[index].warnings.append("Пропущены строки: \(reading.count - previous.reading.count - 1)")
+						attempts[index].warnings.append(Strings.Measurement.missingLines(reading.count - previous.reading.count - 1))
 					}
 					if elapsed - previous.elapsed > 2.5 {
-						attempts[index].warnings.append("Разрыв данных: \(Numeric.text(elapsed - previous.elapsed)) с")
+						attempts[index].warnings.append(Strings.Measurement.gap(elapsed - previous.elapsed))
 					}
 				}
 				attempts[index].samples.append(PowerSample(elapsed: elapsed, date: batch.date, reading: reading))
@@ -162,17 +176,17 @@ struct MeasurementSession: Sendable {
 				&& samples.last.map { duration - $0.elapsed <= tolerance } == true
 				&& !gaps.contains { $0 > timeout }
 			finish(uptime: uptime, date: date,
-				   complete: covered, reason: covered ? "Таймер завершён" : "Недостаточное покрытие данными")
+				   complete: covered, reason: covered ? Strings.Measurement.timerFinished : Strings.Measurement.insufficientCoverage)
 		} else {
 			let last = attempts[index].samples.last?.elapsed ?? 0
 			if elapsed - last >= timeout {
-				finish(uptime: uptime, date: date, complete: false, reason: "Таймаут показаний")
+				finish(uptime: uptime, date: date, complete: false, reason: Strings.Measurement.readingTimeout)
 			}
 		}
 	}
 
 	mutating func stop(uptime: TimeInterval, date: Date,
-					   reason: String = "Остановлено вручную — исключено из расчётов") {
+					   reason: String = Strings.Measurement.manuallyStopped) {
 		guard let index = activeIndex else { return }
 		if uptime - attempts[index].startUptime >= duration {
 			tick(uptime: uptime, date: date)
@@ -192,7 +206,7 @@ struct MeasurementSession: Sendable {
 	}
 
 	mutating func finalize(uptime: TimeInterval, date: Date) {
-		stop(uptime: uptime, date: date, reason: "Сессия завершена досрочно — исключено из расчётов")
+		stop(uptime: uptime, date: date, reason: Strings.Measurement.finalizedEarly)
 		finalized = true
 	}
 
@@ -207,8 +221,8 @@ enum MeasurementError: LocalizedError {
 	case invalidState, invalidIteration
 	var errorDescription: String? {
 		switch self {
-		case .invalidState: return "Сначала остановите текущую итерацию или создайте новую сессию."
-		case .invalidIteration: return "Итерация недоступна или уже завершена."
+		case .invalidState: return Strings.Measurement.invalidState
+		case .invalidIteration: return Strings.Measurement.invalidIteration
 		}
 	}
 }
@@ -225,7 +239,7 @@ enum Numeric {
 	}
 
 	static func text(_ value: Double?) -> String {
-		guard let value, value.isFinite else { return "—" }
+		guard let value, value.isFinite else { return Strings.Common.unavailable }
 		return String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
 			.replacingOccurrences(of: ".", with: ",")
 	}

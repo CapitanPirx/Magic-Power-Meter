@@ -4,7 +4,7 @@ import SwiftUI
 	@State private var model = MeterModel()
 
 	var body: some Scene {
-		Window("Magic Power Meter", id: "meter") {
+		Window(Strings.Common.appName, id: "meter") {
 			ContentView(model: model)
 				.preferredColorScheme(.dark)
 		}

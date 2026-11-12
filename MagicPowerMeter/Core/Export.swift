@@ -14,21 +14,21 @@ enum MeasurementExport {
 				session.completed(IterationKey(conditionID: $0.id, number: offset + 1))?.mean
 			})
 		}
-		rows.append(ResultRow(id: maxIterations, label: "Среднее", values: session.conditions.map {
+		rows.append(ResultRow(id: maxIterations, label: Strings.Common.mean, values: session.conditions.map {
 			session.mean(conditionID: $0.id)
 		}))
 		return rows
 	}
 
 	static func csv(_ session: MeasurementSession) -> Data {
-		var header = ["Итерация"]
+		var header = [Strings.Common.iteration]
 		for (index, condition) in session.conditions.enumerated() {
-			header.append("\(condition.name), Вт")
+			header.append(Strings.Export.powerHeader(condition.name))
 			if index > 0 {
-				header += ["\(condition.name): Δ к базе, Вт", "\(condition.name): Δ к базе, %"]
+				header += [Strings.Export.deltaHeader(condition.name), Strings.Export.percentHeader(condition.name)]
 			}
 		}
-		header += ["Результат", "Источник", "Комплектность"]
+		header += [Strings.Export.result, Strings.Common.source, Strings.Export.completeness]
 		var records = [header]
 		for row in rows(session) {
 			var record = [row.label]
@@ -42,8 +42,8 @@ enum MeasurementExport {
 					]
 				}
 			}
-			record += [session.incomplete ? "Неполный результат" : "Полный результат",
-					   session.source.rawValue, "\(session.completedIterations)/\(session.totalIterations)"]
+			record += [session.incomplete ? Strings.Common.incompleteResult : Strings.Common.completeResult,
+					   session.source.rawValue, Strings.Export.completeness(completed: session.completedIterations, total: session.totalIterations)]
 			records.append(record)
 		}
 		let text = "\u{FEFF}" + records.map { $0.map(escape).joined(separator: ";") }.joined(separator: "\r\n") + "\r\n"
@@ -97,7 +97,7 @@ enum MeasurementExport {
 				"duration_seconds": attempt.elapsed, "target_seconds": session.duration,
 				"stop_detected_after_seconds": attempt.stoppedAfter ?? attempt.elapsed,
 				"valid_samples": attempt.samples.count, "warnings": attempt.warnings,
-				"stop_reason": attempt.stopReason ?? "Идёт запись", "chunks": offsets
+				"stop_reason": attempt.stopReason ?? Strings.Export.recording, "chunks": offsets
 			]
 			let json = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
 			try json.write(to: directory.appendingPathComponent(stem + ".json"), options: .atomic)

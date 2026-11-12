@@ -31,7 +31,7 @@ extension View {
 }
 
 func clockText(_ value: TimeInterval) -> String {
-	guard value.isFinite else { return "—" }
+	guard value.isFinite else { return Strings.Common.unavailable }
 	let seconds = max(0, value.rounded(.towardZero))
 	return String(format: "%02.0f:%02.0f", locale: Locale(identifier: "en_US_POSIX"),
 				  (seconds / 60).rounded(.down), seconds.truncatingRemainder(dividingBy: 60))
@@ -49,16 +49,16 @@ struct ContentView: View {
 				connection
 				storage
 				HStack {
-					Picker("Режим", selection: $model.comparison) {
-						Text("Одиночный").tag(false)
-						Text("Сравнительный").tag(true)
+					Picker(Strings.UI.mode, selection: $model.comparison) {
+						Text(Strings.UI.singleMode).tag(false)
+						Text(Strings.UI.comparisonMode).tag(true)
 					}
 					.pickerStyle(.segmented)
 					.frame(width: 290)
 					.disabled(model.session != nil)
 					Spacer()
 					if model.demo || model.session?.source == .demo {
-						Label("ДЕМО · синтетические данные", systemImage: "testtube.2")
+						Label(Strings.UI.demoBadge, systemImage: "testtube.2")
 							.font(.caption.bold()).foregroundStyle(MeterTheme.warning)
 					}
 				}
@@ -70,10 +70,10 @@ struct ContentView: View {
 				}
 				if !model.history.isEmpty {
 					HStack {
-						Text("Другие замеры в памяти").foregroundStyle(MeterTheme.muted)
-						Menu("Выбрать замер") {
+						Text(Strings.UI.history).foregroundStyle(MeterTheme.muted)
+						Menu(Strings.UI.chooseMeasurement) {
 							ForEach(model.history, id: \.id) { session in
-								Button("\(session.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(session.source.rawValue) · \(session.completedIterations)/\(session.totalIterations)") {
+								Button(Strings.UI.history(date: session.createdAt, source: session.source, completed: session.completedIterations, total: session.totalIterations)) {
 									model.showHistory(session.id)
 								}
 							}
@@ -82,14 +82,14 @@ struct ContentView: View {
 				}
 				if let session = model.session {
 					if session.source != (model.demo ? .demo : .serial) {
-						message("Источник этой сессии: \(session.source.rawValue). Для продолжения выберите тот же источник в настройках порта.", color: MeterTheme.warning, icon: "exclamationmark.triangle")
+						message(Strings.UI.wrongSource(session.source), color: MeterTheme.warning, icon: "exclamationmark.triangle")
 					}
 					sessionPlan(session)
 					recorder(session)
 				} else {
 					setup
 				}
-				Text("Magic Power Meter · Arduino + INA219 · данные и прогресс хранятся в памяти до выхода из приложения")
+				Text(Strings.UI.footer)
 					.font(.caption).foregroundStyle(MeterTheme.muted)
 			}
 			.padding(28)
@@ -101,11 +101,11 @@ struct ContentView: View {
 		.tint(MeterTheme.mint)
 		.frame(minWidth: 920, minHeight: 760)
 		.sheet(isPresented: $showSettings) { PortSettingsView(model: model) }
-		.alert("Завершить замер досрочно?", isPresented: $confirmFinish) {
-			Button("Продолжить измерения", role: .cancel) {}
-			Button("Завершить с неполным результатом", role: .destructive) { model.finalize() }
+		.alert(Strings.UI.finishEarly, isPresented: $confirmFinish) {
+			Button(Strings.UI.continueMeasuring, role: .cancel) {}
+			Button(Strings.UI.finishIncomplete, role: .destructive) { model.finalize() }
 		} message: {
-			Text("Незавершённая попытка будет остановлена и исключена из расчётов. Сырые данные сохранятся в памяти. Результат и CSV получат отметку «Неполный результат».")
+			Text(Strings.UI.finishWarning)
 		}
 	}
 
@@ -114,24 +114,24 @@ struct ContentView: View {
 			Image(systemName: "bolt.horizontal.circle.fill")
 				.font(.system(size: 36)).foregroundStyle(MeterTheme.mint)
 			VStack(alignment: .leading, spacing: 5) {
-				Text("Текущий порт").font(.caption).foregroundStyle(MeterTheme.muted)
+				Text(Strings.UI.currentPort).font(.caption).foregroundStyle(MeterTheme.muted)
 				Text(model.connectedPort).font(.system(.body, design: .monospaced)).textSelection(.enabled)
 				Text(model.connectionStatus).font(.caption).foregroundStyle(MeterTheme.muted)
 					.fixedSize(horizontal: false, vertical: true)
 			}
 			Spacer(minLength: 10)
 			VStack(alignment: .trailing, spacing: 6) {
-				Label(model.connected ? "Готов" : model.preparing ? "Подготовка" : "Не подключён",
+				Label(model.connected ? Strings.UI.ready : model.preparing ? Strings.UI.preparing : Strings.Connection.notConnected,
 					  systemImage: "circle.fill")
 					.font(.caption).foregroundStyle(model.connected ? MeterTheme.mint : MeterTheme.warning)
-				Text(model.demo ? "Демоисточник · 1 Гц" : model.settings.summary)
+				Text(model.demo ? Strings.UI.demoFrequency : model.settings.summary)
 					.font(.caption2).foregroundStyle(MeterTheme.muted)
 				HStack {
-					Button("Настройки порта…") { showSettings = true }
+					Button(Strings.UI.portSettings) { showSettings = true }
 					if model.connected || model.preparing {
-						Button("Отключить") { model.disconnect() }
+						Button(Strings.UI.disconnect) { model.disconnect() }
 					} else {
-						Button("Подключить") { model.connect() }
+						Button(Strings.UI.connect) { model.connect() }
 					}
 				}.disabled(model.recording)
 			}
@@ -141,15 +141,15 @@ struct ContentView: View {
 	private var storage: some View {
 		@Bindable var model = model
 		return HStack(spacing: 14) {
-			Toggle("Сохранять сырой лог (.txt)", isOn: $model.saveRaw)
+			Toggle(Strings.UI.saveRaw, isOn: $model.saveRaw)
 				.toggleStyle(.checkbox)
 			VStack(alignment: .leading, spacing: 3) {
-				Text(model.folder?.path ?? "Папка не выбрана · логи пока только в памяти")
+				Text(model.folder?.path ?? Strings.UI.noFolder)
 					.lineLimit(2).textSelection(.enabled)
-				if model.pendingWrites > 0 { Text("Сохранение файлов…").foregroundStyle(MeterTheme.warning) }
+				if model.pendingWrites > 0 { Text(Strings.UI.saving).foregroundStyle(MeterTheme.warning) }
 			}.font(.caption).foregroundStyle(MeterTheme.muted)
 			Spacer()
-			Button("Выбрать папку…") { model.chooseFolder() }
+			Button(Strings.UI.chooseFolder) { model.chooseFolder() }
 				.disabled(model.recording || model.pendingWrites > 0)
 		}.meterCard()
 	}
@@ -157,35 +157,35 @@ struct ContentView: View {
 	private var setup: some View {
 		@Bindable var model = model
 		return VStack(alignment: .leading, spacing: 16) {
-			Text(model.comparison ? "Настройка сравнения" : "Новый одиночный замер")
+			Text(model.comparison ? Strings.UI.comparisonSetup : Strings.UI.singleSetup)
 				.font(.title2.weight(.semibold))
-			Text(model.comparison ? "Одно базовое условие и варианты. Число итераций может различаться."
-				 : "Подключитесь, задайте длительность и создайте замер. Отсчёт начнётся только после «Старт».")
+			Text(model.comparison ? Strings.UI.comparisonHelp
+				 : Strings.UI.singleHelp)
 				.foregroundStyle(MeterTheme.muted)
 			VStack(alignment: .leading, spacing: 18) {
 				if model.comparison {
 					ForEach(Array(model.conditions.enumerated()), id: \.element.id) { index, condition in
 						HStack(spacing: 12) {
-							Text(index == 0 ? "База" : "Условие \(index)")
+							Text(index == 0 ? Strings.Common.base : Strings.Common.condition(index))
 								.font(.caption).foregroundStyle(MeterTheme.muted).frame(width: 85, alignment: .leading)
-							TextField("Название условия", text: $model.conditions[index].name)
+							TextField(Strings.UI.conditionName, text: $model.conditions[index].name)
 							Stepper(value: $model.conditions[index].iterations, in: 1...50) {
-								Text("\(model.conditions[index].iterations) ит.").monospacedDigit().frame(width: 55)
+								Text(Strings.UI.iterations(model.conditions[index].iterations)).monospacedDigit().frame(width: 55)
 							}.frame(width: 105)
 							Button(role: .destructive) { model.conditions.removeAll { $0.id == condition.id } } label: {
 								Image(systemName: "minus.circle")
 							}.disabled(index == 0 || model.conditions.count <= 2).buttonStyle(.borderless)
 						}
 					}
-					Button("＋ Добавить условие") {
-						model.conditions.append(Condition(name: "Условие \(model.conditions.count)", iterations: 3))
+					Button(Strings.UI.addCondition) {
+						model.conditions.append(Condition(name: Strings.Common.condition(model.conditions.count), iterations: 3))
 					}.disabled(model.conditions.count >= 12)
 					Divider()
 				}
 				HStack {
 					VStack(alignment: .leading, spacing: 5) {
-						Text("Длительность одной итерации").fontWeight(.medium)
-						Text("Одинаковая для всех условий · автоостановка")
+						Text(Strings.UI.iterationDuration).fontWeight(.medium)
+						Text(Strings.UI.sharedDuration)
 							.font(.caption).foregroundStyle(MeterTheme.muted)
 					}
 					Spacer()
@@ -193,14 +193,14 @@ struct ContentView: View {
 				}
 				HStack {
 					let total = model.comparison ? model.conditions.reduce(0) { $0 + $1.iterations } : 1
-					Text("\(total) ит. · \(clockText(Double(total) * model.duration)) чистого времени")
+					Text(Strings.UI.plannedTime(iterations: total, time: clockText(Double(total) * model.duration)))
 						.font(.caption).foregroundStyle(MeterTheme.muted)
 					Spacer()
-					Button("Создать замер →") { model.createSession() }
+					Button(Strings.UI.createSession) { model.createSession() }
 						.buttonStyle(.borderedProminent).foregroundStyle(Color(hex: 0x0d2b20))
 				}
 			}.meterCard()
-			Text("Условия и сценарий на iPhone меняются вручную. Между итерациями запись не идёт: выберите нужную и нажмите «Старт».")
+			Text(Strings.UI.manualScenarios)
 				.font(.caption).foregroundStyle(MeterTheme.muted)
 		}
 	}
@@ -208,12 +208,12 @@ struct ContentView: View {
 	private var durationFields: some View {
 		@Bindable var model = model
 		return HStack(spacing: 8) {
-			TextField("Мин", value: $model.minutes, format: .number.grouping(.never))
-				.frame(width: 58).accessibilityLabel("Минуты")
-			Text("мин")
-			TextField("Сек", value: $model.seconds, format: .number.grouping(.never))
-				.frame(width: 48).accessibilityLabel("Секунды")
-			Text("сек")
+			TextField(Strings.UI.minutesPlaceholder, value: $model.minutes, format: .number.grouping(.never))
+				.frame(width: 58).accessibilityLabel(Strings.UI.minutesAccessibility)
+			Text(Strings.UI.minutesUnit)
+			TextField(Strings.UI.secondsPlaceholder, value: $model.seconds, format: .number.grouping(.never))
+				.frame(width: 48).accessibilityLabel(Strings.UI.secondsAccessibility)
+			Text(Strings.UI.secondsUnit)
 		}.textFieldStyle(.roundedBorder)
 	}
 
@@ -221,30 +221,30 @@ struct ContentView: View {
 		VStack(alignment: .leading, spacing: 14) {
 			HStack {
 				VStack(alignment: .leading, spacing: 5) {
-					Text(session.conditions.count == 1 ? "Одиночный замер" : "Сравнительный замер")
+					Text(session.conditions.count == 1 ? Strings.Common.singleMeasurement : Strings.Common.comparisonMeasurement)
 						.font(.title2.weight(.semibold))
-					Text("Все итерации — в одной сессии, без отдельных файлов")
+					Text(Strings.UI.sessionHelp)
 						.font(.caption).foregroundStyle(MeterTheme.muted)
 				}
 				Spacer()
 				if session.finalized {
-					Text(session.incomplete ? "Неполный результат" : "Замер завершён")
+					Text(session.incomplete ? Strings.Common.incompleteResult : Strings.UI.finished)
 						.foregroundStyle(session.incomplete ? MeterTheme.warning : MeterTheme.mint)
-					Button("Новый замер") { model.newSession() }
+					Button(Strings.UI.newMeasurement) { model.newSession() }
 				}
 			}
 			VStack(alignment: .leading, spacing: 14) {
 				HStack {
-					Text("Общий прогресс")
+					Text(Strings.UI.progress)
 					Spacer()
-					Text("\(session.completedIterations) / \(session.totalIterations) полных").monospacedDigit()
+					Text(Strings.UI.progress(completed: session.completedIterations, total: session.totalIterations)).monospacedDigit()
 				}.font(.caption)
 				ProgressView(value: Double(session.completedIterations), total: Double(max(1, session.totalIterations)))
 				ForEach(Array(session.conditions.enumerated()), id: \.element.id) { index, condition in
 					HStack(alignment: .top) {
 						VStack(alignment: .leading, spacing: 4) {
 							Text(condition.name).fontWeight(.medium)
-							Text(index == 0 ? "Базовое условие" : "Сравнение с базой")
+							Text(index == 0 ? Strings.UI.baseCondition : Strings.UI.comparisonToBase)
 								.font(.caption2).foregroundStyle(MeterTheme.muted)
 						}.frame(width: 190, alignment: .leading)
 						ScrollView(.horizontal) {
@@ -256,7 +256,7 @@ struct ContentView: View {
 						}
 					}
 				}
-				Text("✓ Полная · ● Записывается · ! Неполная · номер — ещё не начата")
+				Text(Strings.UI.iterationLegend)
 					.font(.caption2).foregroundStyle(MeterTheme.muted)
 			}.meterCard()
 		}
@@ -271,7 +271,7 @@ struct ContentView: View {
 		return Button {
 			model.select(key)
 		} label: {
-			Text("\(complete ? "✓ " : active ? "● " : attempt != nil ? "! " : "")\(key.number)")
+			Text(Strings.UI.iteration(number: key.number, complete: complete, active: active, attempted: attempt != nil))
 				.font(.system(.caption, design: .monospaced).weight(.medium))
 				.padding(.horizontal, 12).padding(.vertical, 8)
 				.background(selected ? MeterTheme.selection : MeterTheme.field, in: RoundedRectangle(cornerRadius: 6))
@@ -287,17 +287,17 @@ struct ContentView: View {
 				Text(model.selectedName).font(.headline)
 				Spacer()
 				if !session.finalized {
-					Button("Следующая итерация →") { model.nextIteration() }.disabled(model.recording)
+					Button(Strings.UI.nextIteration) { model.nextIteration() }.disabled(model.recording)
 				}
 			}
 			if !session.finalized {
 				HStack(spacing: 14) {
-					Button("▶ Старт") { model.start() }
+					Button(Strings.UI.start) { model.start() }
 						.buttonStyle(.borderedProminent).foregroundStyle(Color(hex: 0x0d2b20))
 						.disabled(!model.canStart).keyboardShortcut(.return, modifiers: [])
-					Button("■ Стоп") { model.stop() }.disabled(!model.recording)
+					Button(Strings.UI.stop) { model.stop() }.disabled(!model.recording)
 					Spacer()
-					Text("Автостоп через \(clockText(session.duration))").monospacedDigit()
+					Text(Strings.UI.autoStop(clockText(session.duration))).monospacedDigit()
 						.foregroundStyle(MeterTheme.muted)
 				}.controlSize(.large).meterCard()
 			}
@@ -305,9 +305,9 @@ struct ContentView: View {
 				let attempts = session.attempts.filter { $0.key == selected }
 				if attempts.count > 1 {
 					HStack {
-						Text("Попытки").foregroundStyle(MeterTheme.muted)
+						Text(Strings.UI.attempts).foregroundStyle(MeterTheme.muted)
 						ForEach(attempts) { item in
-							Button("\(item.number) · \(item.complete ? "полная" : "неполная")") {
+							Button(Strings.UI.attempt(number: item.number, complete: item.complete)) {
 								model.selectedAttemptID = item.id
 							}.disabled(model.recording)
 						}
@@ -315,44 +315,45 @@ struct ContentView: View {
 				}
 			}
 			HStack(spacing: 20) {
-				metric(title: model.recording ? "Текущая мощность" : "Последняя мощность",
+				metric(title: model.recording ? Strings.UI.currentPower : Strings.UI.lastPower,
 					   value: attempt?.samples.last?.reading.power,
-					   subtitle: model.recording ? "Последний полученный отсчёт" : "Последнее значение · обновление остановлено",
+					   subtitle: model.recording ? Strings.UI.lastSample : Strings.UI.stoppedSample,
 					   highlighted: false)
-				metric(title: "Средняя мощность", value: attempt?.mean,
-					   subtitle: "По валидным отсчётам выбранной попытки" + (attempt?.complete == false ? " · предварительно" : ""),
+				metric(title: Strings.UI.meanPower, value: attempt?.mean,
+					   subtitle: Strings.UI.meanHelp(preliminary: attempt?.complete == false),
 					   highlighted: true)
 			}
 			VStack(spacing: 8) {
 				HStack {
-					Text("Прошло").foregroundStyle(MeterTheme.muted)
+					Text(Strings.UI.elapsed).foregroundStyle(MeterTheme.muted)
 					Spacer()
-					Text("\(clockText(attempt?.elapsed ?? 0)) / \(clockText(session.duration))")
+					Text(Strings.UI.elapsedTime(clockText(attempt?.elapsed ?? 0), target: clockText(session.duration)))
 						.font(.system(size: 18, weight: .medium, design: .monospaced))
 				}
 				ProgressView(value: min(attempt?.elapsed ?? 0, session.duration), total: session.duration)
 				HStack {
-					Text(model.recording ? "● Запись" : attempt?.stopReason ?? "Готово к старту")
+					Text(model.recording ? Strings.UI.recording : attempt?.stopReason ?? Strings.UI.readyToStart)
 					Spacer()
 					if model.recording {
-						Text("Осталось \(clockText(max(0, session.duration - (attempt?.elapsed ?? 0))))")
+						Text(Strings.UI.remaining(clockText(max(0, session.duration - (attempt?.elapsed ?? 0)))))
 					}
 				}.font(.caption).foregroundStyle(model.recording ? MeterTheme.mint : MeterTheme.muted)
 			}
 			if session.finalized { ResultsView(session: session) } else { powerChart(attempt, session: session) }
 			HStack {
-				Text("\(attempt?.samples.count ?? 0) отсчётов · \(Numeric.text(attempt?.frequency)) Гц · пропусков: \(String(format: "%.0f", attempt?.missingReadings ?? 0)) · \(attempt?.warnings.count ?? 0) предупреждений")
+				Text(Strings.UI.diagnostics(samples: attempt?.samples.count ?? 0, frequency: Numeric.text(attempt?.frequency),
+										   missing: String(format: "%.0f", attempt?.missingReadings ?? 0), warnings: attempt?.warnings.count ?? 0))
 					.font(.caption).foregroundStyle(MeterTheme.muted)
 				Spacer()
 				if session.finalized {
-					Button("Сохранить CSV…") { model.exportResult() }
+					Button(Strings.UI.saveCSV) { model.exportResult() }
 				}
-				Button("Логи итерации…") { model.exportLogs(selectedOnly: true) }
+				Button(Strings.UI.iterationLogs) { model.exportLogs(selectedOnly: true) }
 					.disabled(attempt == nil)
-				Button("Все логи…") { model.exportLogs() }.disabled(session.attempts.isEmpty)
+				Button(Strings.UI.allLogs) { model.exportLogs() }.disabled(session.attempts.isEmpty)
 			}.disabled(model.recording || model.pendingWrites > 0)
 			if let attempt, !attempt.warnings.isEmpty {
-				DisclosureGroup("Диагностика: пропуски, повреждённые строки, reset") {
+				DisclosureGroup(Strings.UI.diagnostics) {
 					Text(attempt.warnings.joined(separator: "\n"))
 						.font(.caption.monospaced()).foregroundStyle(MeterTheme.warning)
 						.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
@@ -360,10 +361,10 @@ struct ContentView: View {
 			}
 			if !session.finalized {
 				HStack {
-					Text("«Стоп» завершает попытку без учёта в расчётах. «Завершить замер» формирует итог всей сессии.")
+					Text(Strings.UI.stopHelp)
 						.font(.caption).foregroundStyle(MeterTheme.muted)
 					Spacer()
-					Button("Завершить замер") {
+					Button(Strings.UI.finish) {
 						if session.incomplete || model.recording { confirmFinish = true } else { model.finalize() }
 					}.controlSize(.large)
 				}
@@ -376,7 +377,7 @@ struct ContentView: View {
 			Text(title).font(.caption).foregroundStyle(MeterTheme.muted)
 			HStack(alignment: .firstTextBaseline, spacing: 8) {
 				Text(Numeric.text(value)).font(.system(size: 43, weight: .medium, design: .rounded)).monospacedDigit()
-				Text("Вт").font(.title3).foregroundStyle(MeterTheme.muted)
+				Text(Strings.Common.watts).font(.title3).foregroundStyle(MeterTheme.muted)
 			}
 			Text(subtitle).font(.caption2).foregroundStyle(MeterTheme.muted)
 				.lineLimit(2).frame(height: 28, alignment: .top)
@@ -387,16 +388,16 @@ struct ContentView: View {
 	private func powerChart(_ attempt: MeasurementAttempt?, session: MeasurementSession) -> some View {
 		VStack(alignment: .leading, spacing: 16) {
 			HStack {
-				Text("Потребляемая мощность").font(.headline)
+				Text(Strings.UI.powerChart).font(.headline)
 				Spacer()
-				Text("Шкала 0–15 Вт").font(.caption).foregroundStyle(MeterTheme.muted)
+				Text(Strings.UI.chartRange).font(.caption).foregroundStyle(MeterTheme.muted)
 			}
 			Chart(attempt?.samples ?? []) { sample in
-				AreaMark(x: .value("Время", sample.elapsed), yStart: .value("Ноль", 0), yEnd: .value("Вт", sample.reading.power))
+				AreaMark(x: .value(Strings.UI.timeAxis, sample.elapsed), yStart: .value(Strings.UI.zeroAxis, 0), yEnd: .value(Strings.Common.watts, sample.reading.power))
 					.foregroundStyle(MeterTheme.mint.opacity(0.10))
-				LineMark(x: .value("Время", sample.elapsed), y: .value("Вт", sample.reading.power))
+				LineMark(x: .value(Strings.UI.timeAxis, sample.elapsed), y: .value(Strings.Common.watts, sample.reading.power))
 					.foregroundStyle(MeterTheme.mint).lineStyle(StrokeStyle(lineWidth: 2))
-				PointMark(x: .value("Время", sample.elapsed), y: .value("Вт", sample.reading.power))
+				PointMark(x: .value(Strings.UI.timeAxis, sample.elapsed), y: .value(Strings.Common.watts, sample.reading.power))
 					.foregroundStyle(MeterTheme.mint).symbolSize(9)
 			}
 			.chartYScale(domain: 0...15)
@@ -416,12 +417,12 @@ struct ContentView: View {
 			.chartPlotStyle { $0.clipped() }
 			.frame(height: 260)
 			HStack {
-				Label("Мощность, Вт", systemImage: "waveform.path").foregroundStyle(MeterTheme.mint)
+				Label(Strings.Common.powerWatts, systemImage: "waveform.path").foregroundStyle(MeterTheme.mint)
 				Spacer()
-				Text("Время, мин:сек").foregroundStyle(MeterTheme.muted)
+				Text(Strings.UI.timeLegend).foregroundStyle(MeterTheme.muted)
 			}.font(.caption)
 			if let samples = attempt?.samples, samples.contains(where: { $0.reading.power > 15 }) {
-				Text("Есть значения выше 15 Вт: они сохранены и учтены в среднем, но находятся за шкалой графика.")
+				Text(Strings.UI.aboveChart)
 					.font(.caption).foregroundStyle(MeterTheme.warning)
 			}
 		}.meterCard()
@@ -440,30 +441,30 @@ struct ResultsView: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
-			Text("Результаты замера").font(.title2.weight(.semibold))
-			Text("\(session.incomplete ? "Неполный результат" : "Полный результат") · \(session.completedIterations) / \(session.totalIterations) полных итераций")
+			Text(Strings.UI.results).font(.title2.weight(.semibold))
+			Text(Strings.UI.results(incomplete: session.incomplete, completed: session.completedIterations, total: session.totalIterations))
 				.foregroundStyle(session.incomplete ? MeterTheme.warning : MeterTheme.mint)
 			ForEach(session.conditions) { condition in
 				let count = session.attempts.filter { $0.complete && $0.key.conditionID == condition.id }.count
-				Text("\(condition.name): \(count) / \(condition.iterations)")
+				Text(Strings.UI.conditionProgress(name: condition.name, completed: count, total: condition.iterations))
 					.font(.caption).foregroundStyle(MeterTheme.muted)
 			}
 			if let base = session.conditions.first, session.mean(conditionID: base.id) == nil {
-				Label("Нет полной базы: дельты не рассчитаны.", systemImage: "exclamationmark.triangle")
+				Label(Strings.UI.noBase, systemImage: "exclamationmark.triangle")
 					.foregroundStyle(MeterTheme.warning)
 			}
 			ScrollView(.horizontal) {
 				VStack(spacing: 1) {
 					HStack(spacing: 1) {
-						cell("Итерация", width: width, leading: true).background(MeterTheme.raised)
+						cell(Strings.Common.iteration, width: width, leading: true).background(MeterTheme.raised)
 						ForEach(Array(session.conditions.enumerated()), id: \.element.id) { index, condition in
 							VStack(spacing: 8) {
 								Text(condition.name).fontWeight(.semibold).lineLimit(3)
 								HStack(spacing: 0) {
-									Text("Мощность, Вт").frame(width: width)
+									Text(Strings.Common.powerWatts).frame(width: width)
 									if index > 0 {
-										Text("Δ к базе, Вт").frame(width: width)
-										Text("Δ к базе, %").frame(width: width)
+										Text(Strings.Common.deltaWatts).frame(width: width)
+										Text(Strings.Common.deltaPercent).frame(width: width)
 									}
 								}.font(.caption2)
 							}.padding(.vertical, 12).frame(width: index == 0 ? width : width * 3 + 2)
@@ -483,12 +484,12 @@ struct ResultsView: View {
 								}
 							}
 						}
-						.fontWeight(row.label == "Среднее" ? .semibold : .regular)
-						.background(row.label == "Среднее" ? MeterTheme.selection : MeterTheme.field)
+						.fontWeight(row.label == Strings.Common.mean ? .semibold : .regular)
+						.background(row.label == Strings.Common.mean ? MeterTheme.selection : MeterTheme.field)
 					}
 				}.background(MeterTheme.border)
 			}
-			Text("Неполные попытки исключены. «Среднее» — среднее полных итераций каждого условия. Δ строки — к базе той же итерации; итоговая Δ — из средних. «—» означает отсутствие пары; при нулевой базе процент не определён.")
+			Text(Strings.UI.resultsHelp)
 				.font(.caption).foregroundStyle(MeterTheme.muted)
 		}.meterCard()
 	}
@@ -513,66 +514,66 @@ struct PortSettingsView: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 18) {
-			Text("Настройки считывания порта").font(.title2.weight(.semibold))
-			Picker("Источник", selection: $demo) {
-				Text("Реальный датчик").tag(false)
-				Text("ДЕМО (синтетические данные)").tag(true)
+			Text(Strings.UI.serialSettings).font(.title2.weight(.semibold))
+			Picker(Strings.Common.source, selection: $demo) {
+				Text(Strings.UI.realSensor).tag(false)
+				Text(Strings.UI.demoOption).tag(true)
 			}
 			if model.session?.finalized == false {
-				Text("Для продолжения этой сессии требуется источник: \(model.session?.source.rawValue ?? ""). Данные другого источника в неё не записываются.")
+				Text(Strings.UI.requiredSource(model.session?.source))
 					.font(.caption).foregroundStyle(MeterTheme.muted)
 			}
 			Group {
 				HStack {
-					Picker("Порт", selection: $draft.port) {
-						Text("Авто — первый с корректными данными").tag("")
+					Picker(Strings.UI.port, selection: $draft.port) {
+						Text(Strings.UI.automaticPort).tag("")
 						ForEach(model.ports, id: \.self) { Text($0).tag($0) }
 						if !draft.port.isEmpty && !model.ports.contains(draft.port) {
-							Text("\(draft.port) (недоступен)").tag(draft.port)
+							Text(Strings.UI.unavailablePort(draft.port)).tag(draft.port)
 						}
 					}
 					Button { model.refreshPorts() } label: { Image(systemName: "arrow.clockwise") }
-						.accessibilityLabel("Обновить список портов")
+						.accessibilityLabel(Strings.UI.refreshPorts)
 				}
 				Grid(alignment: .leading, horizontalSpacing: 22, verticalSpacing: 14) {
 					GridRow {
-						Picker("Скорость", selection: $draft.baud) {
+						Picker(Strings.UI.baud, selection: $draft.baud) {
 							ForEach([9600, 19200, 38400, 57600, 115200], id: \.self) { Text("\($0)").tag($0) }
 						}
-						Picker("Биты данных", selection: $draft.dataBits) {
-							Text("7").tag(7)
-							Text("8").tag(8)
+						Picker(Strings.UI.dataBits, selection: $draft.dataBits) {
+							Text(String(7)).tag(7)
+							Text(String(8)).tag(8)
 						}
 					}
 					GridRow {
-						Picker("Чётность", selection: $draft.parity) {
+						Picker(Strings.UI.parity, selection: $draft.parity) {
 							ForEach(SerialParity.allCases, id: \.self) { Text($0.rawValue).tag($0) }
 						}
-						Picker("Стоп-биты", selection: $draft.stopBits) {
-							Text("1").tag(1)
-							Text("2").tag(2)
+						Picker(Strings.UI.stopBits, selection: $draft.stopBits) {
+							Text(String(1)).tag(1)
+							Text(String(2)).tag(2)
 						}
 					}
 					GridRow {
-						Picker("Конец строки", selection: $draft.ending) {
+						Picker(Strings.UI.lineEnding, selection: $draft.ending) {
 							ForEach(LineEnding.allCases, id: \.self) { Text($0.rawValue).tag($0) }
 						}
-						Stepper("Таймаут: \(Int(draft.timeout)) с", value: $draft.timeout, in: 3...30, step: 1)
+						Stepper(Strings.UI.timeout(Int(draft.timeout)), value: $draft.timeout, in: 3...30, step: 1)
 					}
 				}
-				Text("Без flow control. Открытие порта может перезапустить Arduino. Подготовка и проверка данных не входят в измеряемое время. При автовыборе каждый порт проверяется до таймаута; ручной порт не подменяется.")
+				Text(Strings.UI.serialHelp)
 					.font(.caption).foregroundStyle(MeterTheme.muted)
 			}.disabled(demo)
 			Text(model.connectionStatus).font(.caption).foregroundStyle(MeterTheme.muted)
 			ScrollView {
-				Text(model.preview.isEmpty ? "Исходные данные появятся после подключения…" : model.preview)
+				Text(model.preview.isEmpty ? Strings.UI.preview : model.preview)
 					.font(.system(size: 11, design: .monospaced))
 					.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
 			}.frame(height: 120).padding(10).background(MeterTheme.field, in: RoundedRectangle(cornerRadius: 6))
 			HStack {
-				Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
+				Button(Strings.UI.cancel) { dismiss() }.keyboardShortcut(.cancelAction)
 				Spacer()
-				Button("Применить и подключиться") {
+				Button(Strings.UI.applyConnection) {
 					model.disconnect()
 					model.settings = draft
 					model.demo = demo
