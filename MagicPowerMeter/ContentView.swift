@@ -4,9 +4,11 @@ import Charts
 
 func clockText(_ value: TimeInterval) -> String {
 	guard value.isFinite else { return Strings.Common.unavailable }
-	let seconds = max(0, value.rounded(.towardZero))
-	return String(format: "%02.0f:%02.0f", locale: Locale(identifier: "en_US_POSIX"),
-				  (seconds / 60).rounded(.down), seconds.truncatingRemainder(dividingBy: 60))
+	let total = max(0, value.rounded(.towardZero))
+	let minutes = (total / 60).rounded(.down)
+	guard minutes < Double(Int.max) else { return Strings.Common.unavailable }
+	let seconds = Int(total.truncatingRemainder(dividingBy: 60))
+	return "\(Int(minutes)):\(seconds < 10 ? "0" : "")\(seconds)"
 }
 
 struct ContentView: View {
@@ -334,7 +336,7 @@ struct ContentView: View {
 			if session.finalized { ResultsView(session: session) } else { powerChart(attempt, session: session) }
 			HStack {
 				Text(Strings.UI.diagnostics(samples: attempt?.samples.count ?? 0, frequency: Numeric.text(attempt?.frequency),
-										   missing: String(format: "%.0f", attempt?.missingReadings ?? 0), warnings: attempt?.warnings.count ?? 0))
+										   missing: String(format: "%.0f", attempt?.missingReadings ?? 0.0), warnings: attempt?.warnings.count ?? 0))
 					.font(.caption).foregroundStyle(palette.muted)
 				Spacer()
 				if session.finalized {

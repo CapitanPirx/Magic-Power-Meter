@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 import SwiftUI
 
 enum AppearanceFailure: Error {
@@ -73,7 +74,21 @@ struct AppearanceSmoke {
 		print("PASS: both palettes meet 4.5:1 text/button and 3:1 control-boundary contrast gates.")
 	}
 
+	@MainActor static func clockTests() throws {
+		for (value, expected): (TimeInterval, String) in [
+			(0, "0:00"), (9, "0:09"), (59, "0:59"), (60, "1:00"),
+			(61, "1:01"), (180, "3:00"), (61.9, "1:01"), (-9, "0:00"),
+			(.infinity, "—"), (.nan, "—"), (.greatestFiniteMagnitude, "—")
+		] {
+			try require(clockText(value) == expected, "Clock \(value): expected \(expected), got \(clockText(value))")
+		}
+		let large = clockText(Double(Int.max))
+		try require(large.hasSuffix(":08") && !large.contains(" "), "Large finite clock lost m:ss format")
+		print("PASS: production m:ss formatter preserves second padding, guards and large values.")
+	}
+
 	@MainActor static func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, output: URL) throws {
+		let beganAt = Date()
 		let host = NSHostingView(rootView: view.meterAppearance(scheme))
 		let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -3000, y: -3000), size: size),
 							  styleMask: [.borderless], backing: .buffered, defer: false)
@@ -86,6 +101,12 @@ struct AppearanceSmoke {
 		host.cacheDisplay(in: host.bounds, to: bitmap)
 		let png = try bitmap.representation(using: .png, properties: [:]).unwrap("Cannot encode preview")
 		try png.write(to: output)
+		let store = try OSLogStore(scope: .currentProcessIdentifier)
+		let entries = try store.getEntries(at: store.position(date: beganAt))
+		let formattingErrors = entries.compactMap { $0 as? OSLogEntryLog }.filter {
+			$0.subsystem == "com.apple.Foundation" && $0.composedMessage.contains("Provided argument types")
+		}
+		try require(formattingErrors.isEmpty, "\(output.lastPathComponent): \(formattingErrors.first?.composedMessage ?? "")")
 		print("PREVIEW: \(output.path)")
 	}
 
@@ -159,6 +180,7 @@ struct AppearanceSmoke {
 		do {
 			try toggleTest()
 			try contrastTests()
+			try clockTests()
 			if CommandLine.arguments.count > 1 {
 				try require(CommandLine.arguments.count == 3, "Usage: appearance-smoke [output-folder built-app-bundle]")
 				let bundle = try Bundle(path: CommandLine.arguments[2]).unwrap("Cannot load the built app bundle")
