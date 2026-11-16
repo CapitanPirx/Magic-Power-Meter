@@ -1,8 +1,11 @@
 # Magic Power Meter
 
 Native macOS 14+ SwiftUI / Swift Charts application for Arduino + INA219 power measurements.
-The interface is in Russian, with a dark mint-accented theme. Open `MagicPowerMeter.xcodeproj`
+The interface is in Russian, with blue/cyan accents matching the app icon. Open `MagicPowerMeter.xcodeproj`
 and run the `MagicPowerMeter` scheme on My Mac.
+The theme button in the fixed top header, above the connection block, switches between light and dark appearance
+for the whole interface, including port settings and alerts. Each launch starts dark;
+the selection is kept only in memory and does not change measurements.
 
 ## Measuring
 
@@ -56,6 +59,9 @@ swift test
 swiftc -parse-as-library MagicPowerMeter/Core/*.swift MagicPowerMeter/SerialTransport.swift \
   IntegrationTests/DesktopSmoke.swift -o .build/desktop-smoke
 .build/desktop-smoke
+swiftc -parse-as-library MagicPowerMeter/Core/*.swift MagicPowerMeter/MeterAppearance.swift \
+  MagicPowerMeter/ContentView.swift IntegrationTests/AppearanceSmoke.swift -o .build/appearance-smoke
+.build/appearance-smoke
 xcodebuild -project MagicPowerMeter.xcodeproj -scheme MagicPowerMeter \
   -configuration Debug -destination 'platform=macOS' -derivedDataPath build \
   CODE_SIGN_IDENTITY=- build
@@ -63,6 +69,9 @@ xcodebuild -project MagicPowerMeter.xcodeproj -scheme MagicPowerMeter \
 
 Core tests run independently of the UI with Swift Package Manager. A desktop integration
 smoke test uses a POSIX pseudoterminal and the explicit demo source (no sensor is opened).
+The appearance smoke test exercises the SwiftUI theme button's binding action and checks contrast.
+Pass an optional output-folder path to capture the app's own hosted SwiftUI previews
+for both themes (setup, chart, recording, results and port settings), without screen recording.
 Means stream values without intermediate arrays or cached statistics, retaining the
 original incremental calculation order. Raw-log writes reuse a date formatter within
 each export, never across concurrent exports. Regression tests pin floating-point results,

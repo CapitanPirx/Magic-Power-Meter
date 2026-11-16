@@ -1,35 +1,6 @@
 import SwiftUI
 import Charts
 
-enum MeterTheme {
-	static let page = Color(hex: 0x121715)
-	static let surface = Color(hex: 0x222b26)
-	static let raised = Color(hex: 0x2b3630)
-	static let field = Color(hex: 0x19211d)
-	static let selection = Color(hex: 0x283f32)
-	static let border = Color(hex: 0x3b4941)
-	static let ink = Color(hex: 0xeaf1ec)
-	static let muted = Color(hex: 0xabb8b0)
-	static let mint = Color(hex: 0x76ddbc)
-	static let warning = Color(hex: 0xefc38a)
-	static let error = Color(hex: 0xf2b9a2)
-}
-
-extension Color {
-	init(hex: UInt32) {
-		self.init(red: Double((hex >> 16) & 255) / 255,
-				  green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)
-	}
-}
-
-extension View {
-	func meterCard(background: Color = MeterTheme.surface) -> some View {
-		padding(18)
-			.background(background, in: RoundedRectangle(cornerRadius: 11))
-			.overlay(RoundedRectangle(cornerRadius: 11).stroke(MeterTheme.border, lineWidth: 1))
-	}
-}
-
 func clockText(_ value: TimeInterval) -> String {
 	guard value.isFinite else { return Strings.Common.unavailable }
 	let seconds = max(0, value.rounded(.towardZero))
@@ -39,12 +10,39 @@ func clockText(_ value: TimeInterval) -> String {
 
 struct ContentView: View {
 	@Bindable var model: MeterModel
+	@Binding var colorScheme: ColorScheme
+	@Environment(\.meterPalette) private var palette
 	@State private var showSettings = false
 	@State private var confirmFinish = false
 
 	var body: some View {
+		VStack(spacing: 0) {
+			HStack {
+				Spacer()
+				ThemeToggle(colorScheme: $colorScheme)
+			}
+			.padding(.horizontal, 28).padding(.top, 16)
+			.frame(maxWidth: 1180).frame(maxWidth: .infinity)
+			page
+		}
+		.background(palette.page)
+		.foregroundStyle(palette.ink)
+		.tint(palette.accent)
+		.frame(minWidth: 920, minHeight: 760)
+		.sheet(isPresented: $showSettings) {
+			PortSettingsView(model: model).meterAppearance(colorScheme)
+		}
+		.alert(Strings.UI.finishEarly, isPresented: $confirmFinish) {
+			Button(Strings.UI.continueMeasuring, role: .cancel) {}
+			Button(Strings.UI.finishIncomplete, role: .destructive) { model.finalize() }
+		} message: {
+			Text(Strings.UI.finishWarning)
+		}
+	}
+
+	private var page: some View {
 		@Bindable var model = model
-		ScrollView {
+		return ScrollView {
 			VStack(alignment: .leading, spacing: 22) {
 				connection
 				storage
@@ -59,18 +57,18 @@ struct ContentView: View {
 					Spacer()
 					if model.demo || model.session?.source == .demo {
 						Label(Strings.UI.demoBadge, systemImage: "testtube.2")
-							.font(.caption.bold()).foregroundStyle(MeterTheme.warning)
+							.font(.caption.bold()).foregroundStyle(palette.warning)
 					}
 				}
 				if let error = model.error {
-					message(error, color: MeterTheme.error, icon: "exclamationmark.triangle")
+					message(error, color: palette.error, icon: "exclamationmark.triangle")
 				}
 				if let notice = model.notice {
-					message(notice, color: MeterTheme.muted, icon: "info.circle")
+					message(notice, color: palette.muted, icon: "info.circle")
 				}
 				if !model.history.isEmpty {
 					HStack {
-						Text(Strings.UI.history).foregroundStyle(MeterTheme.muted)
+						Text(Strings.UI.history).foregroundStyle(palette.muted)
 						Menu(Strings.UI.chooseMeasurement) {
 							ForEach(model.history, id: \.id) { session in
 								Button(Strings.UI.history(date: session.createdAt, source: session.source, completed: session.completedIterations, total: session.totalIterations)) {
@@ -82,7 +80,7 @@ struct ContentView: View {
 				}
 				if let session = model.session {
 					if session.source != (model.demo ? .demo : .serial) {
-						message(Strings.UI.wrongSource(session.source), color: MeterTheme.warning, icon: "exclamationmark.triangle")
+						message(Strings.UI.wrongSource(session.source), color: palette.warning, icon: "exclamationmark.triangle")
 					}
 					sessionPlan(session)
 					recorder(session)
@@ -90,42 +88,31 @@ struct ContentView: View {
 					setup
 				}
 				Text(Strings.UI.footer)
-					.font(.caption).foregroundStyle(MeterTheme.muted)
+					.font(.caption).foregroundStyle(palette.muted)
 			}
 			.padding(28)
 			.frame(maxWidth: 1180)
 			.frame(maxWidth: .infinity)
-		}
-		.background(MeterTheme.page)
-		.foregroundStyle(MeterTheme.ink)
-		.tint(MeterTheme.mint)
-		.frame(minWidth: 920, minHeight: 760)
-		.sheet(isPresented: $showSettings) { PortSettingsView(model: model) }
-		.alert(Strings.UI.finishEarly, isPresented: $confirmFinish) {
-			Button(Strings.UI.continueMeasuring, role: .cancel) {}
-			Button(Strings.UI.finishIncomplete, role: .destructive) { model.finalize() }
-		} message: {
-			Text(Strings.UI.finishWarning)
 		}
 	}
 
 	private var connection: some View {
 		HStack(spacing: 14) {
 			Image(systemName: "bolt.horizontal.circle.fill")
-				.font(.system(size: 36)).foregroundStyle(MeterTheme.mint)
+				.font(.system(size: 36)).foregroundStyle(palette.accent)
 			VStack(alignment: .leading, spacing: 5) {
-				Text(Strings.UI.currentPort).font(.caption).foregroundStyle(MeterTheme.muted)
+				Text(Strings.UI.currentPort).font(.caption).foregroundStyle(palette.muted)
 				Text(model.connectedPort).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-				Text(model.connectionStatus).font(.caption).foregroundStyle(MeterTheme.muted)
+				Text(model.connectionStatus).font(.caption).foregroundStyle(palette.muted)
 					.fixedSize(horizontal: false, vertical: true)
 			}
 			Spacer(minLength: 10)
 			VStack(alignment: .trailing, spacing: 6) {
 				Label(model.connected ? Strings.UI.ready : model.preparing ? Strings.UI.preparing : Strings.Connection.notConnected,
 					  systemImage: "circle.fill")
-					.font(.caption).foregroundStyle(model.connected ? MeterTheme.mint : MeterTheme.warning)
+					.font(.caption).foregroundStyle(model.connected ? palette.accent : palette.warning)
 				Text(model.demo ? Strings.UI.demoFrequency : model.settings.summary)
-					.font(.caption2).foregroundStyle(MeterTheme.muted)
+					.font(.caption2).foregroundStyle(palette.muted)
 				HStack {
 					Button(Strings.UI.portSettings) { showSettings = true }
 					if model.connected || model.preparing {
@@ -146,8 +133,8 @@ struct ContentView: View {
 			VStack(alignment: .leading, spacing: 3) {
 				Text(model.folder?.path ?? Strings.UI.noFolder)
 					.lineLimit(2).textSelection(.enabled)
-				if model.pendingWrites > 0 { Text(Strings.UI.saving).foregroundStyle(MeterTheme.warning) }
-			}.font(.caption).foregroundStyle(MeterTheme.muted)
+				if model.pendingWrites > 0 { Text(Strings.UI.saving).foregroundStyle(palette.warning) }
+			}.font(.caption).foregroundStyle(palette.muted)
 			Spacer()
 			Button(Strings.UI.chooseFolder) { model.chooseFolder() }
 				.disabled(model.recording || model.pendingWrites > 0)
@@ -161,13 +148,13 @@ struct ContentView: View {
 				.font(.title2.weight(.semibold))
 			Text(model.comparison ? Strings.UI.comparisonHelp
 				 : Strings.UI.singleHelp)
-				.foregroundStyle(MeterTheme.muted)
+				.foregroundStyle(palette.muted)
 			VStack(alignment: .leading, spacing: 18) {
 				if model.comparison {
 					ForEach(Array(model.conditions.enumerated()), id: \.element.id) { index, condition in
 						HStack(spacing: 12) {
 							Text(index == 0 ? Strings.Common.base : Strings.Common.condition(index))
-								.font(.caption).foregroundStyle(MeterTheme.muted).frame(width: 85, alignment: .leading)
+								.font(.caption).foregroundStyle(palette.muted).frame(width: 85, alignment: .leading)
 							TextField(Strings.UI.conditionName, text: $model.conditions[index].name)
 							Stepper(value: $model.conditions[index].iterations, in: 1...50) {
 								Text(Strings.UI.iterations(model.conditions[index].iterations)).monospacedDigit().frame(width: 55)
@@ -186,7 +173,7 @@ struct ContentView: View {
 					VStack(alignment: .leading, spacing: 5) {
 						Text(Strings.UI.iterationDuration).fontWeight(.medium)
 						Text(Strings.UI.sharedDuration)
-							.font(.caption).foregroundStyle(MeterTheme.muted)
+							.font(.caption).foregroundStyle(palette.muted)
 					}
 					Spacer()
 					durationFields
@@ -194,14 +181,14 @@ struct ContentView: View {
 				HStack {
 					let total = model.comparison ? model.conditions.reduce(0) { $0 + $1.iterations } : 1
 					Text(Strings.UI.plannedTime(iterations: total, time: clockText(Double(total) * model.duration)))
-						.font(.caption).foregroundStyle(MeterTheme.muted)
+						.font(.caption).foregroundStyle(palette.muted)
 					Spacer()
 					Button(Strings.UI.createSession) { model.createSession() }
-						.buttonStyle(.borderedProminent).foregroundStyle(Color(hex: 0x0d2b20))
+						.buttonStyle(MeterPrimaryButtonStyle())
 				}
 			}.meterCard()
 			Text(Strings.UI.manualScenarios)
-				.font(.caption).foregroundStyle(MeterTheme.muted)
+				.font(.caption).foregroundStyle(palette.muted)
 		}
 	}
 
@@ -224,12 +211,12 @@ struct ContentView: View {
 					Text(session.conditions.count == 1 ? Strings.Common.singleMeasurement : Strings.Common.comparisonMeasurement)
 						.font(.title2.weight(.semibold))
 					Text(Strings.UI.sessionHelp)
-						.font(.caption).foregroundStyle(MeterTheme.muted)
+						.font(.caption).foregroundStyle(palette.muted)
 				}
 				Spacer()
 				if session.finalized {
 					Text(session.incomplete ? Strings.Common.incompleteResult : Strings.UI.finished)
-						.foregroundStyle(session.incomplete ? MeterTheme.warning : MeterTheme.mint)
+						.foregroundStyle(session.incomplete ? palette.warning : palette.accent)
 					Button(Strings.UI.newMeasurement) { model.newSession() }
 				}
 			}
@@ -240,12 +227,13 @@ struct ContentView: View {
 					Text(Strings.UI.progress(completed: session.completedIterations, total: session.totalIterations)).monospacedDigit()
 				}.font(.caption)
 				ProgressView(value: Double(session.completedIterations), total: Double(max(1, session.totalIterations)))
+					.progressViewStyle(MeterProgressStyle())
 				ForEach(Array(session.conditions.enumerated()), id: \.element.id) { index, condition in
 					HStack(alignment: .top) {
 						VStack(alignment: .leading, spacing: 4) {
 							Text(condition.name).fontWeight(.medium)
 							Text(index == 0 ? Strings.UI.baseCondition : Strings.UI.comparisonToBase)
-								.font(.caption2).foregroundStyle(MeterTheme.muted)
+								.font(.caption2).foregroundStyle(palette.muted)
 						}.frame(width: 190, alignment: .leading)
 						ScrollView(.horizontal) {
 							HStack {
@@ -257,7 +245,7 @@ struct ContentView: View {
 					}
 				}
 				Text(Strings.UI.iterationLegend)
-					.font(.caption2).foregroundStyle(MeterTheme.muted)
+					.font(.caption2).foregroundStyle(palette.muted)
 			}.meterCard()
 		}
 	}
@@ -267,15 +255,15 @@ struct ContentView: View {
 		let complete = session.completed(key) != nil
 		let active = session.active?.key == key
 		let selected = model.selected == key
-		let color = complete ? MeterTheme.mint : attempt != nil ? MeterTheme.warning : MeterTheme.muted
+		let color = complete ? palette.accent : attempt != nil ? palette.warning : palette.muted
 		return Button {
 			model.select(key)
 		} label: {
 			Text(Strings.UI.iteration(number: key.number, complete: complete, active: active, attempted: attempt != nil))
 				.font(.system(.caption, design: .monospaced).weight(.medium))
 				.padding(.horizontal, 12).padding(.vertical, 8)
-				.background(selected ? MeterTheme.selection : MeterTheme.field, in: RoundedRectangle(cornerRadius: 6))
-				.overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? MeterTheme.mint : MeterTheme.border))
+				.background(selected ? palette.selection : palette.field, in: RoundedRectangle(cornerRadius: 6))
+				.overlay(RoundedRectangle(cornerRadius: 6).stroke(selected ? palette.accent : palette.border))
 				.foregroundStyle(color)
 		}.buttonStyle(.plain).disabled(model.recording)
 	}
@@ -293,19 +281,19 @@ struct ContentView: View {
 			if !session.finalized {
 				HStack(spacing: 14) {
 					Button(Strings.UI.start) { model.start() }
-						.buttonStyle(.borderedProminent).foregroundStyle(Color(hex: 0x0d2b20))
+						.buttonStyle(MeterPrimaryButtonStyle())
 						.disabled(!model.canStart).keyboardShortcut(.return, modifiers: [])
 					Button(Strings.UI.stop) { model.stop() }.disabled(!model.recording)
 					Spacer()
 					Text(Strings.UI.autoStop(clockText(session.duration))).monospacedDigit()
-						.foregroundStyle(MeterTheme.muted)
+						.foregroundStyle(palette.muted)
 				}.controlSize(.large).meterCard()
 			}
 			if let selected = model.selected {
 				let attempts = session.attempts.filter { $0.key == selected }
 				if attempts.count > 1 {
 					HStack {
-						Text(Strings.UI.attempts).foregroundStyle(MeterTheme.muted)
+						Text(Strings.UI.attempts).foregroundStyle(palette.muted)
 						ForEach(attempts) { item in
 							Button(Strings.UI.attempt(number: item.number, complete: item.complete)) {
 								model.selectedAttemptID = item.id
@@ -325,25 +313,26 @@ struct ContentView: View {
 			}
 			VStack(spacing: 8) {
 				HStack {
-					Text(Strings.UI.elapsed).foregroundStyle(MeterTheme.muted)
+					Text(Strings.UI.elapsed).foregroundStyle(palette.muted)
 					Spacer()
 					Text(Strings.UI.elapsedTime(clockText(attempt?.elapsed ?? 0), target: clockText(session.duration)))
 						.font(.system(size: 18, weight: .medium, design: .monospaced))
 				}
 				ProgressView(value: min(attempt?.elapsed ?? 0, session.duration), total: session.duration)
+					.progressViewStyle(MeterProgressStyle())
 				HStack {
 					Text(model.recording ? Strings.UI.recording : attempt?.stopReason ?? Strings.UI.readyToStart)
 					Spacer()
 					if model.recording {
 						Text(Strings.UI.remaining(clockText(max(0, session.duration - (attempt?.elapsed ?? 0)))))
 					}
-				}.font(.caption).foregroundStyle(model.recording ? MeterTheme.mint : MeterTheme.muted)
+				}.font(.caption).foregroundStyle(model.recording ? palette.accent : palette.muted)
 			}
 			if session.finalized { ResultsView(session: session) } else { powerChart(attempt, session: session) }
 			HStack {
 				Text(Strings.UI.diagnostics(samples: attempt?.samples.count ?? 0, frequency: Numeric.text(attempt?.frequency),
 										   missing: String(format: "%.0f", attempt?.missingReadings ?? 0), warnings: attempt?.warnings.count ?? 0))
-					.font(.caption).foregroundStyle(MeterTheme.muted)
+					.font(.caption).foregroundStyle(palette.muted)
 				Spacer()
 				if session.finalized {
 					Button(Strings.UI.saveCSV) { model.exportResult() }
@@ -355,14 +344,14 @@ struct ContentView: View {
 			if let attempt, !attempt.warnings.isEmpty {
 				DisclosureGroup(Strings.UI.diagnostics) {
 					Text(attempt.warnings.joined(separator: "\n"))
-						.font(.caption.monospaced()).foregroundStyle(MeterTheme.warning)
+						.font(.caption.monospaced()).foregroundStyle(palette.warning)
 						.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
 				}
 			}
 			if !session.finalized {
 				HStack {
 					Text(Strings.UI.stopHelp)
-						.font(.caption).foregroundStyle(MeterTheme.muted)
+						.font(.caption).foregroundStyle(palette.muted)
 					Spacer()
 					Button(Strings.UI.finish) {
 						if session.incomplete || model.recording { confirmFinish = true } else { model.finalize() }
@@ -374,15 +363,15 @@ struct ContentView: View {
 
 	private func metric(title: String, value: Double?, subtitle: String, highlighted: Bool) -> some View {
 		VStack(alignment: .leading, spacing: 8) {
-			Text(title).font(.caption).foregroundStyle(MeterTheme.muted)
+			Text(title).font(.caption).foregroundStyle(palette.muted)
 			HStack(alignment: .firstTextBaseline, spacing: 8) {
 				Text(Numeric.text(value)).font(.system(size: 43, weight: .medium, design: .rounded)).monospacedDigit()
-				Text(Strings.Common.watts).font(.title3).foregroundStyle(MeterTheme.muted)
+				Text(Strings.Common.watts).font(.title3).foregroundStyle(palette.muted)
 			}
-			Text(subtitle).font(.caption2).foregroundStyle(MeterTheme.muted)
+			Text(subtitle).font(.caption2).foregroundStyle(palette.muted)
 				.lineLimit(2).frame(height: 28, alignment: .top)
 		}.frame(maxWidth: .infinity, alignment: .leading)
-			.meterCard(background: highlighted ? MeterTheme.selection : MeterTheme.surface)
+			.meterCard(background: highlighted ? palette.selection : palette.surface)
 	}
 
 	private func powerChart(_ attempt: MeasurementAttempt?, session: MeasurementSession) -> some View {
@@ -390,40 +379,41 @@ struct ContentView: View {
 			HStack {
 				Text(Strings.UI.powerChart).font(.headline)
 				Spacer()
-				Text(Strings.UI.chartRange).font(.caption).foregroundStyle(MeterTheme.muted)
+				Text(Strings.UI.chartRange).font(.caption).foregroundStyle(palette.muted)
 			}
 			Chart(attempt?.samples ?? []) { sample in
 				AreaMark(x: .value(Strings.UI.timeAxis, sample.elapsed), yStart: .value(Strings.UI.zeroAxis, 0), yEnd: .value(Strings.Common.watts, sample.reading.power))
-					.foregroundStyle(MeterTheme.mint.opacity(0.10))
+					.foregroundStyle(palette.accent.opacity(0.10))
 				LineMark(x: .value(Strings.UI.timeAxis, sample.elapsed), y: .value(Strings.Common.watts, sample.reading.power))
-					.foregroundStyle(MeterTheme.mint).lineStyle(StrokeStyle(lineWidth: 2))
+					.foregroundStyle(palette.accent).lineStyle(StrokeStyle(lineWidth: 2))
 				PointMark(x: .value(Strings.UI.timeAxis, sample.elapsed), y: .value(Strings.Common.watts, sample.reading.power))
-					.foregroundStyle(MeterTheme.mint).symbolSize(9)
+					.foregroundStyle(palette.accent).symbolSize(9)
 			}
 			.chartYScale(domain: 0...15)
 			.chartXScale(domain: 0...session.duration)
 			.chartYAxis {
 				AxisMarks(position: .leading, values: [0, 3, 6, 9, 12, 15]) {
-					AxisGridLine().foregroundStyle(MeterTheme.border)
-					AxisValueLabel()
+					AxisGridLine().foregroundStyle(palette.border)
+					AxisValueLabel().foregroundStyle(palette.muted)
 				}
 			}
 			.chartXAxis {
 				AxisMarks(values: .automatic(desiredCount: 6)) { value in
-					AxisGridLine().foregroundStyle(MeterTheme.border)
+					AxisGridLine().foregroundStyle(palette.border)
 					AxisValueLabel { if let seconds = value.as(Double.self) { Text(clockText(seconds)) } }
+						.foregroundStyle(palette.muted)
 				}
 			}
 			.chartPlotStyle { $0.clipped() }
 			.frame(height: 260)
 			HStack {
-				Label(Strings.Common.powerWatts, systemImage: "waveform.path").foregroundStyle(MeterTheme.mint)
+				Label(Strings.Common.powerWatts, systemImage: "waveform.path").foregroundStyle(palette.accent)
 				Spacer()
-				Text(Strings.UI.timeLegend).foregroundStyle(MeterTheme.muted)
+				Text(Strings.UI.timeLegend).foregroundStyle(palette.muted)
 			}.font(.caption)
 			if let samples = attempt?.samples, samples.contains(where: { $0.reading.power > 15 }) {
 				Text(Strings.UI.aboveChart)
-					.font(.caption).foregroundStyle(MeterTheme.warning)
+					.font(.caption).foregroundStyle(palette.warning)
 			}
 		}.meterCard()
 	}
@@ -437,26 +427,27 @@ struct ContentView: View {
 
 struct ResultsView: View {
 	let session: MeasurementSession
+	@Environment(\.meterPalette) private var palette
 	private let width: CGFloat = 110
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
 			Text(Strings.UI.results).font(.title2.weight(.semibold))
 			Text(Strings.UI.results(incomplete: session.incomplete, completed: session.completedIterations, total: session.totalIterations))
-				.foregroundStyle(session.incomplete ? MeterTheme.warning : MeterTheme.mint)
+				.foregroundStyle(session.incomplete ? palette.warning : palette.accent)
 			ForEach(session.conditions) { condition in
 				let count = session.attempts.filter { $0.complete && $0.key.conditionID == condition.id }.count
 				Text(Strings.UI.conditionProgress(name: condition.name, completed: count, total: condition.iterations))
-					.font(.caption).foregroundStyle(MeterTheme.muted)
+					.font(.caption).foregroundStyle(palette.muted)
 			}
 			if let base = session.conditions.first, session.mean(conditionID: base.id) == nil {
 				Label(Strings.UI.noBase, systemImage: "exclamationmark.triangle")
-					.foregroundStyle(MeterTheme.warning)
+					.foregroundStyle(palette.warning)
 			}
 			ScrollView(.horizontal) {
 				VStack(spacing: 1) {
 					HStack(spacing: 1) {
-						cell(Strings.Common.iteration, width: width, leading: true).background(MeterTheme.raised)
+						cell(Strings.Common.iteration, width: width, leading: true).background(palette.raised)
 						ForEach(Array(session.conditions.enumerated()), id: \.element.id) { index, condition in
 							VStack(spacing: 8) {
 								Text(condition.name).fontWeight(.semibold).lineLimit(3)
@@ -468,7 +459,7 @@ struct ResultsView: View {
 									}
 								}.font(.caption2)
 							}.padding(.vertical, 12).frame(width: index == 0 ? width : width * 3 + 2)
-								.background(MeterTheme.raised)
+								.background(palette.raised)
 						}
 					}
 					ForEach(MeasurementExport.rows(session)) { row in
@@ -485,29 +476,30 @@ struct ResultsView: View {
 							}
 						}
 						.fontWeight(row.label == Strings.Common.mean ? .semibold : .regular)
-						.background(row.label == Strings.Common.mean ? MeterTheme.selection : MeterTheme.field)
+						.background(row.label == Strings.Common.mean ? palette.selection : palette.field)
 					}
-				}.background(MeterTheme.border)
+				}.background(palette.border)
 			}
 			Text(Strings.UI.resultsHelp)
-				.font(.caption).foregroundStyle(MeterTheme.muted)
+				.font(.caption).foregroundStyle(palette.muted)
 		}.meterCard()
 	}
 
 	private func cell(_ text: String, width: CGFloat, leading: Bool = false,
-					  color: Color = MeterTheme.ink) -> some View {
-		Text(text).font(.system(size: 12)).monospacedDigit().foregroundStyle(color)
+					  color: Color? = nil) -> some View {
+		Text(text).font(.system(size: 12)).monospacedDigit().foregroundStyle(color ?? palette.ink)
 			.padding(.horizontal, 10).frame(width: width, height: 40, alignment: leading ? .leading : .trailing)
 	}
 
 	private func deltaColor(_ value: Double?) -> Color {
-		guard let value else { return MeterTheme.muted }
-		return value > 0 ? MeterTheme.warning : value < 0 ? MeterTheme.mint : MeterTheme.ink
+		guard let value else { return palette.muted }
+		return value > 0 ? palette.warning : value < 0 ? palette.accent : palette.ink
 	}
 }
 
 struct PortSettingsView: View {
 	@Bindable var model: MeterModel
+	@Environment(\.meterPalette) private var palette
 	@Environment(\.dismiss) private var dismiss
 	@State private var draft = SerialSettings()
 	@State private var demo = false
@@ -521,7 +513,7 @@ struct PortSettingsView: View {
 			}
 			if model.session?.finalized == false {
 				Text(Strings.UI.requiredSource(model.session?.source))
-					.font(.caption).foregroundStyle(MeterTheme.muted)
+					.font(.caption).foregroundStyle(palette.muted)
 			}
 			Group {
 				HStack {
@@ -562,14 +554,14 @@ struct PortSettingsView: View {
 					}
 				}
 				Text(Strings.UI.serialHelp)
-					.font(.caption).foregroundStyle(MeterTheme.muted)
+					.font(.caption).foregroundStyle(palette.muted)
 			}.disabled(demo)
-			Text(model.connectionStatus).font(.caption).foregroundStyle(MeterTheme.muted)
+			Text(model.connectionStatus).font(.caption).foregroundStyle(palette.muted)
 			ScrollView {
 				Text(model.preview.isEmpty ? Strings.UI.preview : model.preview)
 					.font(.system(size: 11, design: .monospaced))
 					.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-			}.frame(height: 120).padding(10).background(MeterTheme.field, in: RoundedRectangle(cornerRadius: 6))
+			}.frame(height: 120).padding(10).background(palette.field, in: RoundedRectangle(cornerRadius: 6))
 			HStack {
 				Button(Strings.UI.cancel) { dismiss() }.keyboardShortcut(.cancelAction)
 				Spacer()
@@ -579,11 +571,11 @@ struct PortSettingsView: View {
 					model.demo = demo
 					model.connect()
 					dismiss()
-				}.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+				}.buttonStyle(MeterPrimaryButtonStyle()).keyboardShortcut(.defaultAction)
 			}
 		}
 		.padding(24).frame(width: 620)
-		.background(MeterTheme.page).foregroundStyle(MeterTheme.ink)
+		.background(palette.page).foregroundStyle(palette.ink)
 		.onAppear { draft = model.settings; demo = model.demo; model.refreshPorts() }
 	}
 }

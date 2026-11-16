@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 @main @MainActor struct MagicPowerMeterApp: App {
+	@State private var colorScheme: ColorScheme = .dark
 	@State private var model = MeterModel(
 		transport: SerialTransport(),
 		exporter: FileMeasurementExporter(),
@@ -18,8 +19,8 @@ import SwiftUI
 
 	var body: some Scene {
 		Window(Strings.Common.appName, id: "meter") {
-			ContentView(model: model)
-				.preferredColorScheme(.dark)
+			ContentView(model: model, colorScheme: $colorScheme)
+				.meterAppearance(colorScheme)
 		}
 		.defaultSize(width: 1060, height: 1000)
 	}

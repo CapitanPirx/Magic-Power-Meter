@@ -137,6 +137,10 @@ enum Strings {
 	}
 
 	enum UI {
+		static let lightTheme = "Светлая тема"
+		static let darkTheme = "Тёмная тема"
+		static let switchToLightTheme = "Переключить на светлую тему"
+		static let switchToDarkTheme = "Переключить на тёмную тему"
 		static let mode = "Режим"
 		static let singleMode = "Одиночный"
 		static let comparisonMode = "Сравнительный"
