@@ -15,15 +15,33 @@ the selection is kept only in memory and does not change measurements.
    The protocol is `count;voltage_V;current_mA;power_W`, with comma or dot decimals.
    Automatic selection probes each port until it receives a valid sensor reading.
    Connecting/preparing may reset Arduino and does not start the measurement.
-3. Choose single or comparison mode, configure named conditions, individual iteration
-   counts and a shared duration (default 180 seconds), then create a session.
+3. Choose single, comparison or sprint mode and a shared duration (default 180 seconds).
+   Comparison has editable named conditions and individual iteration counts. Sprint is a
+   fixed, independent 5×3 template: ВДНХ статика (авторизован), ВДНХ статика (неавторизован),
+   ВДНХ динамика (авторизован), ВДНХ динамика (неавторизован), Сочи Дендрарий динамика.
+   Create a session; use «Переименовать» beside its title to edit the session name.
+   Empty/whitespace-only names are rejected. Names and modes remain in in-memory history;
+   renaming does not change session IDs or export filenames.
 4. Select an iteration, prepare the scenario on the phone manually and press Start.
+   After an iteration completes, Start selects the next unfinished slot in plan order
+   and starts it in one press. An explicitly selected unfinished slot takes priority.
+   Recording never advances without pressing Start; all slots complete disables Start.
+   All elapsed/remaining/planned durations use `m:ss` (for example `0:09`, `3:00`).
    The monotonic timer stops at the configured duration. Stop aborts an attempt:
-   it remains in raw logs but is excluded from all result calculations. Retry does
-   not overwrite earlier attempts. Inspect previous attempts using the attempt buttons.
-5. Finish the session to replace the graph with results and generate CSV in memory.
+   it remains in raw logs but is excluded from all result calculations.
+   In comparison and sprint modes select a recorded slot and use «Перезамер» to remeasure it.
+   The previous full result remains included until a new full attempt succeeds; only then
+   does the new attempt replace it in means, progress, tables, graphs and CSV. An aborted,
+   timed-out or failed replacement keeps the previous result. All old attempts and exact
+   raw bytes remain available using the attempt buttons, with explicit inclusion status.
+5. Finish the session to open «Таблица» / «Графики» tabs and generate CSV in memory.
+   The graphs tab lets you select every scenario/iteration, including incomplete or
+   unrecorded slots (clearly labelled), with the original 0–15 W and session-time scales.
    Early finalization requires confirmation and marks the result incomplete.
-   Completed sessions remain available in memory when starting a new session.
+   Remeasurement also works after finalization: when the attempt stops, the session returns
+   to finalized state and its table, graphs and in-memory CSV refresh. Automatic exports
+   use the updated snapshot if a folder is selected. Completed sessions remain available
+   in memory when starting a new session. Single mode has no explicit remeasurement action.
 
 The graph always uses 0-15 W; values above the graph range remain in the data and mean.
 Malformed lines, count gaps, resets and timing gaps are reported. Empty runs and runs
@@ -41,14 +59,17 @@ finalization automatically saves CSV if a folder is selected. Export buttons all
 Nothing is persisted across application restarts unless exported.
 
 CSV uses UTF-8 BOM, semicolons, comma decimals, quoted condition names and blank missing
-cells. Each iteration delta uses its corresponding base iteration. The last row averages
+cells. In comparison mode each iteration delta uses its corresponding base iteration. The last row averages
 complete iteration means separately per condition; deltas are calculated from those means,
 not from averaged percentages. A zero base has no percentage. Completeness and source
 are repeated in every CSV row, so incomplete/demo results cannot lose their labels.
+Sprint UI and CSV contain independent scenario means, without a base or delta columns.
 
 Raw `.txt` files contain the exact received bytes, not regenerated CSV. Associated JSON
 identifies source, condition, iteration, attempt, inclusion in calculations, connection,
 timestamps, raw chunk byte offsets and diagnostics. Demo filenames have a `DEMO-` prefix.
+`complete` describes an attempt's coverage; `included_in_calculations` is true only for
+the current successful result of its slot, not for superseded full attempts.
 The app remains sandboxed with serial-device and user-selected-folder write entitlements;
 it has no network capability and no external dependencies.
 
@@ -69,10 +90,14 @@ xcodebuild -project MagicPowerMeter.xcodeproj -scheme MagicPowerMeter \
 
 Core tests run independently of the UI with Swift Package Manager. A desktop integration
 smoke test uses a POSIX pseudoterminal and the explicit demo source (no sensor is opened).
-The appearance smoke test exercises the SwiftUI theme button's binding action and checks contrast.
+The appearance smoke test exercises the SwiftUI theme button's binding action, checks contrast
+and verifies the production duration formatter, including invalid/large inputs.
 Pass optional output-folder and built `.app` paths to capture the app's own hosted SwiftUI previews
-for both themes (setup, chart, recording, results and port settings), without screen recording.
+for both themes (setup, next Start, recording, result tabs, rename, remeasurement, sprint
+and port settings), without screen recording.
 The preview process loads the compiled app icon from that bundle instead of its command-line executable icon.
+Each captured view also checks its own process's unified log for Foundation format-argument mismatches;
+these diagnostics are not reliably visible in stderr.
 Means stream values without intermediate arrays or cached statistics, retaining the
 original incremental calculation order. Raw-log writes reuse a date formatter within
 each export, never across concurrent exports. Regression tests pin floating-point results,

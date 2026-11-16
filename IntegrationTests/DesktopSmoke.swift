@@ -178,12 +178,12 @@ struct DesktopSmoke {
 		try await wait("demo ready") { model.connected }
 		model.createSession()
 		try require(model.session?.source == .demo, "Demo source not labelled")
+		try require(model.renameSession("Демо сравнение"), "Session rename failed")
 		model.start()
 		try await wait("first raw sample") { !(model.session?.active?.samples.isEmpty ?? true) }
 		model.stop()
 		try require(model.session?.completedIterations == 0, "Aborted iteration counted")
 		for expected in 1...3 {
-			model.nextIteration()
 			try require(model.canStart, "Cannot start next iteration")
 			model.start()
 			try await wait("model monotonic timer", timeout: 5) { !model.recording }
@@ -202,6 +202,17 @@ struct DesktopSmoke {
 		try require(logs.filter { $0.hasSuffix(".txt") }.count == 4, "Missing attempt logs")
 		try require(logs.allSatisfy { $0.hasPrefix("DEMO-") }, "Unlabelled demo logs")
 
+		let original = try model.session.unwrap("Missing finalized session")
+		let key = try original.attempts.last.unwrap("Missing recorded iteration").key
+		model.select(key)
+		try require(!model.canStart && model.canRetry, "Finalized retry readiness")
+		model.retry()
+		try await wait("finalized remeasurement", timeout: 5) { !model.recording }
+		try require(model.session?.finalized == true && model.session?.completedIterations == 3, "Retry changed finalization/progress")
+		try require(model.session?.completed(key)?.id != original.completed(key)?.id, "Retry did not replace included result")
+		try require(model.generatedCSV == model.session.map(MeasurementExport.csv), "Retry left stale CSV")
+		try await wait("replacement export") { model.pendingWrites == 0 }
+
 		let fileNotDirectory = folder.appendingPathComponent("not-a-directory")
 		try Data().write(to: fileNotDirectory)
 		model.folder = fileNotDirectory
@@ -215,6 +226,7 @@ struct DesktopSmoke {
 		try require(model.history.count == 1 && model.session == nil, "Session not retained in history")
 		model.showHistory(sessionID)
 		try require(model.session?.finalized == true, "Finalized session not viewable")
+		try require(model.session?.name == "Демо сравнение" && model.mode == .comparison, "History lost session name/mode")
 	}
 
 	@MainActor static func automaticSelectionTests() async throws {

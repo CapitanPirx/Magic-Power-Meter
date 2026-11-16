@@ -155,6 +155,21 @@ enum Strings {
 		static let mode = "Режим"
 		static let singleMode = "Одиночный"
 		static let comparisonMode = "Сравнительный"
+		static let sprintMode = "Ежеспринтовый"
+		static let sprintHelp = "Пять независимых сценариев по три итерации. Средняя мощность каждого сценария — без базы и дельт."
+		static let renameMeasurement = "Переименовать"
+		static let measurementName = "Название замера"
+		static let saveName = "Сохранить название"
+		static let remeasure = "Перезамер"
+		static let retryHelp = "Подготовьте сценарий на телефоне. Прежний полный результат сохранится до успешного завершения новой попытки."
+		static let tableTab = "Таблица"
+		static let chartsTab = "Графики"
+		static let resultView = "Представление результата"
+		static let includedAttempt = "Эта попытка учитывается в результате."
+		static let supersededAttempt = "Архивная полная попытка — заменена успешным перезамером и не учитывается."
+		static let excludedAttempt = "Неполная попытка — не учитывается в результате."
+		static let noAttempt = "Эта итерация ещё не записана."
+		static let independentResultsHelp = "Среднее каждого сценария рассчитано независимо по его полным итерациям. Неполные и заменённые попытки не учитываются. «—» означает отсутствие полного результата."
 		static let demoBadge = "ДЕМО · синтетические данные"
 		static let history = "Другие замеры в памяти"
 		static let chooseMeasurement = "Выбрать замер"
@@ -183,7 +198,7 @@ enum Strings {
 		static let iterationDuration = "Длительность одной итерации"
 		static let sharedDuration = "Одинаковая для всех условий · автоостановка"
 		static let createSession = "Создать замер →"
-		static let manualScenarios = "Условия и сценарий на iPhone меняются вручную. Между итерациями запись не идёт: выберите нужную и нажмите «Старт»."
+		static let manualScenarios = "Сценарий на iPhone меняется вручную. Подготовьте следующий сценарий и нажмите «Старт». Между итерациями запись не идёт."
 		static let minutesPlaceholder = "Мин"
 		static let minutesAccessibility = "Минуты"
 		static let minutesUnit = "мин"
@@ -196,7 +211,6 @@ enum Strings {
 		static let progress = "Общий прогресс"
 		static let baseCondition = "Базовое условие"
 		static let comparisonToBase = "Сравнение с базой"
-		static let iterationLegend = "✓ Полная · ● Записывается · ! Неполная · номер — ещё не начата"
 		static let nextIteration = "Следующая итерация →"
 		static let start = "▶ Старт"
 		static let stop = "■ Стоп"
@@ -242,6 +256,22 @@ enum Strings {
 
 		static func history(date: Date, source: MeasurementSource, completed: Int, total: Int) -> String {
 			"\(date.formatted(date: .abbreviated, time: .shortened)) · \(source.rawValue) · \(completed)/\(total)"
+		}
+
+		static func namedHistory(name: String, mode: MeasurementMode, details: String) -> String {
+			"\(name) · \(mode.title) · \(details)"
+		}
+
+		static func modeTitle(_ mode: MeasurementMode) -> String {
+			switch mode {
+			case .single: return singleMode
+			case .comparison: return comparisonMode
+			case .sprint: return sprintMode
+			}
+		}
+
+		static func startTarget(condition: String, number: Int) -> String {
+			"По нажатию «Старт»: \(Model.selectedIteration(condition: condition, number: number))"
 		}
 
 		static func wrongSource(_ source: MeasurementSource) -> String {

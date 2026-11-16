@@ -267,15 +267,20 @@ final class MeterModel {
 		if folder != nil { write(session: session, contents: saveRaw ? .resultAndLogs : .result) }
 	}
 
-	func renameSession(_ name: String) {
+	@discardableResult
+	func renameSession(_ name: String) -> Bool {
 		guard session != nil else {
 			error = Strings.Measurement.invalidState
-			return
+			return false
 		}
 		do {
 			try session?.rename(name)
 			error = nil
-		} catch { self.error = error.localizedDescription }
+			return true
+		} catch {
+			self.error = error.localizedDescription
+			return false
+		}
 	}
 
 	func newSession() {

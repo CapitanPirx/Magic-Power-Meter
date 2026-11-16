@@ -11,12 +11,17 @@ func clockText(_ value: TimeInterval) -> String {
 	return "\(Int(minutes)):\(seconds < 10 ? "0" : "")\(seconds)"
 }
 
+enum ResultsTab {
+	case table, charts
+}
+
 struct ContentView: View {
 	@Bindable var model: MeterModel
 	@Binding var colorScheme: ColorScheme
 	@Environment(\.meterPalette) private var palette
 	@State private var showSettings = false
 	@State private var confirmFinish = false
+	@State var resultsTab: ResultsTab = .table
 
 	var body: some View {
 		VStack(spacing: 0) {
@@ -52,11 +57,11 @@ struct ContentView: View {
 				HStack {
 					Picker(Strings.UI.mode, selection: $model.mode) {
 						ForEach(MeasurementMode.allCases, id: \.self) { mode in
-							Text(mode.title).tag(mode)
+							Text(Strings.UI.modeTitle(mode)).tag(mode)
 						}
 					}
 					.pickerStyle(.segmented)
-					.frame(width: 620)
+					.frame(width: 470)
 					.disabled(model.session != nil)
 					Spacer()
 					if model.demo || model.session?.source == .demo {
@@ -75,7 +80,8 @@ struct ContentView: View {
 						Text(Strings.UI.history).foregroundStyle(palette.muted)
 						Menu(Strings.UI.chooseMeasurement) {
 							ForEach(model.history, id: \.id) { session in
-								Button(Strings.UI.history(date: session.createdAt, source: session.source, completed: session.completedIterations, total: session.totalIterations)) {
+								Button(Strings.UI.namedHistory(name: session.name, mode: session.mode, details:
+									Strings.UI.history(date: session.createdAt, source: session.source, completed: session.completedIterations, total: session.totalIterations))) {
 									model.showHistory(session.id)
 								}
 							}
@@ -151,7 +157,7 @@ struct ContentView: View {
 		return VStack(alignment: .leading, spacing: 16) {
 			Text(model.mode == .comparison ? Strings.UI.comparisonSetup : model.mode.title)
 				.font(.title2.weight(.semibold))
-			Text(model.mode == .comparison ? Strings.UI.comparisonHelp
+			Text(model.mode == .sprint ? Strings.UI.sprintHelp : model.mode == .comparison ? Strings.UI.comparisonHelp
 				 : Strings.UI.singleHelp)
 				.foregroundStyle(palette.muted)
 			VStack(alignment: .leading, spacing: 18) {
@@ -172,6 +178,15 @@ struct ContentView: View {
 					Button(Strings.UI.addCondition) {
 						model.conditions.append(Condition(name: Strings.Common.condition(model.conditions.count), iterations: 3))
 					}.disabled(model.conditions.count >= 12)
+					Divider()
+				} else if model.mode == .sprint {
+					ForEach(model.sprintConditions) { condition in
+						HStack {
+							Text(condition.name)
+							Spacer()
+							Text(Strings.UI.iterations(condition.iterations)).foregroundStyle(palette.muted)
+						}
+					}
 					Divider()
 				}
 				HStack {
@@ -213,8 +228,8 @@ struct ContentView: View {
 		VStack(alignment: .leading, spacing: 14) {
 			HStack {
 				VStack(alignment: .leading, spacing: 5) {
-					Text(session.conditions.count == 1 ? Strings.Common.singleMeasurement : Strings.Common.comparisonMeasurement)
-						.font(.title2.weight(.semibold))
+					SessionNameView(model: model)
+					Text(session.mode.title).font(.caption).foregroundStyle(palette.muted)
 					Text(Strings.UI.sessionHelp)
 						.font(.caption).foregroundStyle(palette.muted)
 				}
@@ -237,8 +252,10 @@ struct ContentView: View {
 					HStack(alignment: .top) {
 						VStack(alignment: .leading, spacing: 4) {
 							Text(condition.name).fontWeight(.medium)
-							Text(index == 0 ? Strings.UI.baseCondition : Strings.UI.comparisonToBase)
-								.font(.caption2).foregroundStyle(palette.muted)
+							if session.mode == .comparison {
+								Text(index == 0 ? Strings.UI.baseCondition : Strings.UI.comparisonToBase)
+									.font(.caption2).foregroundStyle(palette.muted)
+							}
 						}.frame(width: 190, alignment: .leading)
 						ScrollView(.horizontal) {
 							HStack {
@@ -249,8 +266,6 @@ struct ContentView: View {
 						}
 					}
 				}
-				Text(Strings.UI.iterationLegend)
-					.font(.caption2).foregroundStyle(palette.muted)
 			}.meterCard()
 		}
 	}
@@ -264,7 +279,7 @@ struct ContentView: View {
 		return Button {
 			model.select(key)
 		} label: {
-			Text(Strings.UI.iteration(number: key.number, complete: complete, active: active, attempted: attempt != nil))
+			Text(Strings.UI.iteration(number: key.number, complete: complete && !active, active: active, attempted: attempt != nil))
 				.font(.system(.caption, design: .monospaced).weight(.medium))
 				.padding(.horizontal, 12).padding(.vertical, 8)
 				.background(selected ? palette.selection : palette.field, in: RoundedRectangle(cornerRadius: 6))
@@ -279,11 +294,20 @@ struct ContentView: View {
 			HStack {
 				Text(model.selectedName).font(.headline)
 				Spacer()
+				if session.mode != .single, let selected = model.selected, session.latest(selected) != nil {
+					Button(Strings.UI.remeasure) { model.retry() }
+						.disabled(!model.canRetry).help(Strings.UI.retryHelp)
+				}
 				if !session.finalized {
 					Button(Strings.UI.nextIteration) { model.nextIteration() }.disabled(model.recording)
 				}
 			}
 			if !session.finalized {
+				if let target = model.startTarget, target != model.selected {
+					Text(Strings.UI.startTarget(condition: session.conditions.first { $0.id == target.conditionID }?.name ?? "",
+											   number: target.number))
+						.font(.caption).foregroundStyle(palette.accent)
+				}
 				HStack(spacing: 14) {
 					Button(Strings.UI.start) { model.start() }
 						.buttonStyle(MeterPrimaryButtonStyle())
@@ -306,6 +330,11 @@ struct ContentView: View {
 						}
 					}.font(.caption)
 				}
+			}
+			if let attempt, !model.recording {
+				Text(attempt.includedInCalculations ? Strings.UI.includedAttempt
+					 : attempt.complete ? Strings.UI.supersededAttempt : Strings.UI.excludedAttempt)
+					.font(.caption).foregroundStyle(attempt.includedInCalculations ? palette.muted : palette.warning)
 			}
 			HStack(spacing: 20) {
 				metric(title: model.recording ? Strings.UI.currentPower : Strings.UI.lastPower,
@@ -333,7 +362,28 @@ struct ContentView: View {
 					}
 				}.font(.caption).foregroundStyle(model.recording ? palette.accent : palette.muted)
 			}
-			if session.finalized { ResultsView(session: session) } else { powerChart(attempt, session: session) }
+			if session.finalized {
+				Picker(Strings.UI.resultView, selection: $resultsTab) {
+					Text(Strings.UI.tableTab).tag(ResultsTab.table)
+					Text(Strings.UI.chartsTab).tag(ResultsTab.charts)
+				}.pickerStyle(.segmented).frame(width: 300)
+				if resultsTab == .table {
+					ResultsView(session: session)
+				} else {
+					Picker(Strings.Common.iteration, selection: Binding(get: { model.selected }, set: { key in
+						if let key { model.select(key) }
+					})) {
+						ForEach(session.iterationKeys, id: \.self) { key in
+							Text(Strings.Model.selectedIteration(condition: session.conditions.first { $0.id == key.conditionID }?.name ?? "",
+																number: key.number)).tag(Optional(key))
+						}
+					}
+					if attempt == nil { Text(Strings.UI.noAttempt).foregroundStyle(palette.muted) }
+					powerChart(attempt, session: session)
+				}
+			} else {
+				powerChart(attempt, session: session)
+			}
 			HStack {
 				Text(Strings.UI.diagnostics(samples: attempt?.samples.count ?? 0, frequency: Numeric.text(attempt?.frequency),
 										   missing: String(format: "%.0f", attempt?.missingReadings ?? 0.0), warnings: attempt?.warnings.count ?? 0))
@@ -430,10 +480,42 @@ struct ContentView: View {
 	}
 }
 
+struct SessionNameView: View {
+	@Bindable var model: MeterModel
+	@Environment(\.meterPalette) private var palette
+	@State var editing = false
+	@State private var draft = ""
+
+	var body: some View {
+		HStack {
+			if editing {
+				TextField(Strings.UI.measurementName, text: $draft)
+					.textFieldStyle(.roundedBorder)
+					.onSubmit { save() }
+				Button(Strings.UI.saveName) { save() }
+				Button(Strings.UI.cancel) { editing = false }
+			} else {
+				Text(model.session?.name ?? "").font(.title2.weight(.semibold))
+				Button(Strings.UI.renameMeasurement) {
+					draft = model.session?.name ?? ""
+					editing = true
+				}
+			}
+		}
+		.foregroundStyle(palette.ink)
+		.disabled(model.recording)
+		.onAppear { draft = model.session?.name ?? "" }
+	}
+
+	private func save() {
+		if model.renameSession(draft) { editing = false }
+	}
+}
+
 struct ResultsView: View {
 	let session: MeasurementSession
 	@Environment(\.meterPalette) private var palette
-	private let width: CGFloat = 110
+	private var width: CGFloat { session.mode == .sprint ? 160 : 110 }
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
@@ -441,11 +523,11 @@ struct ResultsView: View {
 			Text(Strings.UI.results(incomplete: session.incomplete, completed: session.completedIterations, total: session.totalIterations))
 				.foregroundStyle(session.incomplete ? palette.warning : palette.accent)
 			ForEach(session.conditions) { condition in
-				let count = session.attempts.filter { $0.complete && $0.key.conditionID == condition.id }.count
+				let count = session.includedAttempts.filter { $0.key.conditionID == condition.id }.count
 				Text(Strings.UI.conditionProgress(name: condition.name, completed: count, total: condition.iterations))
 					.font(.caption).foregroundStyle(palette.muted)
 			}
-			if let base = session.conditions.first, session.mean(conditionID: base.id) == nil {
+			if session.mode == .comparison, let base = session.conditions.first, session.mean(conditionID: base.id) == nil {
 				Label(Strings.UI.noBase, systemImage: "exclamationmark.triangle")
 					.foregroundStyle(palette.warning)
 			}
@@ -458,12 +540,12 @@ struct ResultsView: View {
 								Text(condition.name).fontWeight(.semibold).lineLimit(3)
 								HStack(spacing: 0) {
 									Text(Strings.Common.powerWatts).frame(width: width)
-									if index > 0 {
+									if session.mode == .comparison && index > 0 {
 										Text(Strings.Common.deltaWatts).frame(width: width)
 										Text(Strings.Common.deltaPercent).frame(width: width)
 									}
 								}.font(.caption2)
-							}.padding(.vertical, 12).frame(width: index == 0 ? width : width * 3 + 2)
+							}.padding(.vertical, 12).frame(width: session.mode != .comparison || index == 0 ? width : width * 3 + 2)
 								.background(palette.raised)
 						}
 					}
@@ -472,7 +554,7 @@ struct ResultsView: View {
 							cell(row.label, width: width, leading: true)
 							ForEach(Array(row.values.enumerated()), id: \.offset) { index, value in
 								cell(Numeric.text(value), width: width)
-								if index > 0 {
+								if session.mode == .comparison && index > 0 {
 									let base = row.values.first ?? nil
 									let delta = Numeric.delta(value, base: base)
 									cell(Numeric.text(delta), width: width, color: deltaColor(delta))
@@ -485,7 +567,7 @@ struct ResultsView: View {
 					}
 				}.background(palette.border)
 			}
-			Text(Strings.UI.resultsHelp)
+			Text(session.mode == .comparison ? Strings.UI.resultsHelp : Strings.UI.independentResultsHelp)
 				.font(.caption).foregroundStyle(palette.muted)
 		}.meterCard()
 	}

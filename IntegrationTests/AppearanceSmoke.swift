@@ -115,10 +115,11 @@ struct AppearanceSmoke {
 				   exportFolder: ExportFolder(picker: { nil }))
 	}
 
-	@MainActor static func recordedSession() throws -> MeasurementSession {
+	@MainActor static func recordedSession(mode: MeasurementMode = .comparison) throws -> MeasurementSession {
 		let date = Date(timeIntervalSince1970: 1_700_000_000)
-		let conditions = [Condition(name: "База", iterations: 3), Condition(name: "Новое условие", iterations: 3)]
-		var session = MeasurementSession(mode: .comparison, conditions: conditions, duration: 180, timeout: 8,
+		let conditions = mode == .sprint ? mode.defaultConditions
+			: [Condition(name: "База", iterations: 3), Condition(name: "Новое условие", iterations: 3)]
+		var session = MeasurementSession(mode: mode, conditions: conditions, duration: 180, timeout: 8,
 										 source: .demo, connectionDescription: "DEMO", createdAt: date)
 		for (condition, number, count) in [(0, 1, 180), (0, 2, 40), (1, 1, 180)] {
 			let start = Double(session.attempts.count * 200)
@@ -132,6 +133,16 @@ struct AppearanceSmoke {
 			}
 			session.stop(uptime: start + Double(count), date: date)
 		}
+		let key = IterationKey(conditionID: conditions[0].id, number: 1)
+		try session.retry(key, uptime: 600, date: date)
+		for second in 0..<180 {
+			let now = 600 + Double(second)
+			session.receive(SensorBatch(raw: Data("\(second);5;1000;8\n".utf8),
+									   lines: [TimedLine(value: .reading(SensorReading(count: UInt64(second), voltage: 5, current: 1000, power: 8)),
+														 beganAt: now)], uptime: now, date: date))
+		}
+		session.tick(uptime: 780, date: date)
+		try session.rename(mode == .sprint ? "Спринт 42" : "Сравнение сборок")
 		return session
 	}
 
@@ -140,6 +151,8 @@ struct AppearanceSmoke {
 		for scheme in [ColorScheme.dark, .light] {
 			let name = scheme == .dark ? "dark" : "light"
 			let model = model()
+			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
+						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-startup.png"))
 			model.mode = .comparison
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
 						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-setup.png"))
@@ -156,6 +169,7 @@ struct AppearanceSmoke {
 			try snapshot(PortSettingsView(model: model), scheme: scheme, size: NSSize(width: 620, height: 720),
 						 output: folder.appendingPathComponent("\(name)-settings.png"))
 			let recording = Self.model()
+			recording.mode = .comparison
 			recording.demo = true
 			recording.connected = true
 			recording.connectedPort = model.connectedPort
@@ -166,10 +180,52 @@ struct AppearanceSmoke {
 			recording.selected = recordingKey
 			try snapshot(ContentView(model: recording, colorScheme: .constant(scheme)), scheme: scheme,
 						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-recording.png"))
-			model.session?.finalize(uptime: 600, date: Date())
+			model.session?.finalize(uptime: 800, date: Date())
 			model.pendingWrites = 1
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
 						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-results.png"))
+			model.pendingWrites = 0
+			model.error = nil
+			model.notice = nil
+			for (label, condition, number) in [("complete", 0, 1), ("incomplete", 0, 2), ("empty", 1, 3)] {
+				let id = try model.session.unwrap("Missing result preview").conditions[condition].id
+				model.select(IterationKey(conditionID: id, number: number))
+				try snapshot(ContentView(model: model, colorScheme: .constant(scheme), resultsTab: .charts), scheme: scheme,
+							 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-result-chart-\(label).png"))
+			}
+			model.select(try model.session.unwrap("Missing retry preview").attempts[0].key)
+			model.selectedAttemptID = model.session?.attempts[0].id
+			try snapshot(ContentView(model: model, colorScheme: .constant(scheme), resultsTab: .charts), scheme: scheme,
+						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-result-chart-superseded.png"))
+			try snapshot(SessionNameView(model: model, editing: true).padding(24).background(MeterPalette(colorScheme: scheme).page),
+						 scheme: scheme, size: NSSize(width: 1000, height: 100), output: folder.appendingPathComponent("\(name)-rename.png"))
+			let retrying = Self.model()
+			retrying.mode = .comparison
+			retrying.demo = true
+			retrying.connected = true
+			retrying.connectedPort = model.connectedPort
+			retrying.connectionStatus = model.connectionStatus
+			retrying.session = model.session
+			let key = try retrying.session.unwrap("Missing finalized retry").attempts[0].key
+			try retrying.session?.retry(key, uptime: 1000, date: Date())
+			retrying.selected = key
+			try snapshot(ContentView(model: retrying, colorScheme: .constant(scheme)), scheme: scheme,
+						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-remeasurement.png"))
+			let sprint = Self.model()
+			sprint.mode = .sprint
+			sprint.demo = true
+			sprint.connected = true
+			sprint.connectedPort = model.connectedPort
+			sprint.connectionStatus = model.connectionStatus
+			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme)), scheme: scheme,
+						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-sprint-setup.png"))
+			sprint.session = try recordedSession(mode: .sprint)
+			sprint.session?.finalize(uptime: 800, date: Date())
+			sprint.selected = sprint.session?.attempts.last?.key
+			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme)), scheme: scheme,
+						 size: NSSize(width: 1120, height: 1950), output: folder.appendingPathComponent("\(name)-sprint-table.png"))
+			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme), resultsTab: .charts), scheme: scheme,
+						 size: NSSize(width: 1120, height: 1950), output: folder.appendingPathComponent("\(name)-sprint-chart.png"))
 		}
 	}
 
