@@ -119,7 +119,7 @@ struct AppearanceSmoke {
 		for scheme in [ColorScheme.dark, .light] {
 			let name = scheme == .dark ? "dark" : "light"
 			let model = model()
-			model.comparison = true
+			model.mode = .comparison
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
 						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-setup.png"))
 			model.demo = true

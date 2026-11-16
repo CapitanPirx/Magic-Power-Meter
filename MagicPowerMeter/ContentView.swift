@@ -48,12 +48,13 @@ struct ContentView: View {
 				connection
 				storage
 				HStack {
-					Picker(Strings.UI.mode, selection: $model.comparison) {
-						Text(Strings.UI.singleMode).tag(false)
-						Text(Strings.UI.comparisonMode).tag(true)
+					Picker(Strings.UI.mode, selection: $model.mode) {
+						ForEach(MeasurementMode.allCases, id: \.self) { mode in
+							Text(mode.title).tag(mode)
+						}
 					}
 					.pickerStyle(.segmented)
-					.frame(width: 290)
+					.frame(width: 620)
 					.disabled(model.session != nil)
 					Spacer()
 					if model.demo || model.session?.source == .demo {
@@ -146,13 +147,13 @@ struct ContentView: View {
 	private var setup: some View {
 		@Bindable var model = model
 		return VStack(alignment: .leading, spacing: 16) {
-			Text(model.comparison ? Strings.UI.comparisonSetup : Strings.UI.singleSetup)
+			Text(model.mode == .comparison ? Strings.UI.comparisonSetup : model.mode.title)
 				.font(.title2.weight(.semibold))
-			Text(model.comparison ? Strings.UI.comparisonHelp
+			Text(model.mode == .comparison ? Strings.UI.comparisonHelp
 				 : Strings.UI.singleHelp)
 				.foregroundStyle(palette.muted)
 			VStack(alignment: .leading, spacing: 18) {
-				if model.comparison {
+				if model.mode == .comparison {
 					ForEach(Array(model.conditions.enumerated()), id: \.element.id) { index, condition in
 						HStack(spacing: 12) {
 							Text(index == 0 ? Strings.Common.base : Strings.Common.condition(index))
@@ -181,7 +182,7 @@ struct ContentView: View {
 					durationFields
 				}
 				HStack {
-					let total = model.comparison ? model.conditions.reduce(0) { $0 + $1.iterations } : 1
+					let total = model.plannedConditions.reduce(0) { $0 + $1.iterations }
 					Text(Strings.UI.plannedTime(iterations: total, time: clockText(Double(total) * model.duration)))
 						.font(.caption).foregroundStyle(palette.muted)
 					Spacer()

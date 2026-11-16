@@ -85,7 +85,7 @@ struct DesktopSmoke {
 		model.finalize()
 		try require(model.notice == "CSV сформирован в памяти. Выберите папку для сохранения на диск.", "CSV notice")
 		model.newSession()
-		model.comparison = true
+		model.mode = .comparison
 		model.conditions[0].name = " "
 		model.createSession()
 		try require(model.error == "Задайте имена условий и от 1 до 50 итераций для каждого.", "Condition error")
@@ -168,7 +168,7 @@ struct DesktopSmoke {
 		model.demo = true
 		model.minutes = 0
 		model.seconds = 3
-		model.comparison = true
+		model.mode = .comparison
 		model.conditions = [Condition(name: "База", iterations: 2), Condition(name: "Новое", iterations: 1)]
 		let folder = FileManager.default.temporaryDirectory.appendingPathComponent("MagicPowerMeter-smoke-\(UUID().uuidString)")
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

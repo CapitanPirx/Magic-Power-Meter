@@ -135,11 +135,16 @@ enum Strings {
 		static let invalidDuration = "Укажите ненулевую длительность; секунды должны быть от 0 до 59."
 		static let invalidConditions = "Задайте имена условий и от 1 до 50 итераций для каждого."
 		static let activity = "Запись показаний Magic Power Meter"
-		static let iterationFinished = "Итерация завершена. Смените условие на телефоне и выберите следующую итерацию."
+		static let iterationFinished = "Итерация завершена. Подготовьте следующий сценарий на телефоне и нажмите «Старт»."
+		static let retryUnavailable = "Для перезамера выберите записанную итерацию сравнительного или ежеспринтового замера и подключите исходный источник."
+		static let retryFinished = "Перезамер завершён. Таблица, графики и CSV обновлены."
 		static let allIterationsRecorded = "Все итерации записаны. Нажмите «Завершить замер»."
 
 		static func selectedIteration(condition: String, number: Int) -> String { "\(condition) · итерация \(number)" }
 		static func incompleteAttempt(_ reason: String) -> String { "Неполная попытка исключена из расчётов. \(reason)" }
+		static func previousResultKept(_ reason: String) -> String {
+			"Перезамер не завершён: предыдущий полный результат сохранён. \(reason)"
+		}
 	}
 
 	enum UI {

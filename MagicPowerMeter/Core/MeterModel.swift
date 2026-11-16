@@ -13,8 +13,9 @@ final class MeterModel {
 	var preview = ""
 	var error: String?
 	var notice: String?
-	var comparison = false
-	var conditions = [Condition(name: Strings.Common.base, iterations: 3), Condition(name: Strings.Common.condition(1), iterations: 3)]
+	var mode: MeasurementMode = .single
+	var conditions = MeasurementMode.comparison.defaultConditions
+	let sprintConditions = MeasurementMode.sprint.defaultConditions
 	var minutes = 3
 	var seconds = 0
 	var session: MeasurementSession?
@@ -37,16 +38,32 @@ final class MeterModel {
 
 	var recording: Bool { session?.active != nil }
 	var duration: TimeInterval { Double(minutes) * 60 + Double(seconds) }
+	var plannedConditions: [Condition] {
+		switch mode {
+		case .single: return MeasurementMode.single.defaultConditions
+		case .comparison: return conditions
+		case .sprint: return sprintConditions
+		}
+	}
 	var viewedAttempt: MeasurementAttempt? {
 		guard let session, let selected else { return nil }
 		if let selectedAttemptID {
 			return session.attempts.first { $0.id == selectedAttemptID }
 		}
-		return session.latest(selected)
+		if session.active?.key == selected { return session.active }
+		return session.completed(selected) ?? session.latest(selected)
 	}
-	var canStart: Bool {
-		guard connected, !recording, let session, !session.finalized, let selected else { return false }
-		return session.completed(selected) == nil && session.source == (demo ? .demo : .serial)
+	private var readyForRecording: Bool {
+		connected && !preparing && !recording && session?.source == (demo ? .demo : .serial)
+	}
+	var startTarget: IterationKey? {
+		guard readyForRecording else { return nil }
+		return session?.nextStartKey(selected: selected)
+	}
+	var canStart: Bool { startTarget != nil }
+	var canRetry: Bool {
+		guard readyForRecording, let session, session.mode != .single, let selected else { return false }
+		return session.latest(selected) != nil
 	}
 	var selectedName: String {
 		guard let selected else { return Strings.Model.noIteration }
@@ -136,13 +153,13 @@ final class MeterModel {
 			error = Strings.Model.invalidDuration
 			return
 		}
-		let plan = comparison ? conditions : [Condition(name: Strings.Common.singleMeasurement, iterations: 1)]
+		let plan = plannedConditions
 		guard plan.allSatisfy({ !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (1...50).contains($0.iterations) }),
-			  !plan.isEmpty, !comparison || plan.count >= 2 else {
+			  !plan.isEmpty, mode != .comparison || plan.count >= 2 else {
 			error = Strings.Model.invalidConditions
 			return
 		}
-		session = MeasurementSession(mode: comparison ? .comparison : .single,
+		session = MeasurementSession(mode: mode,
 									 conditions: plan, duration: duration, timeout: settings.timeout,
 									 source: demo ? .demo : .serial,
 									 connectionDescription: Strings.Connection.description(port: connectedPort, settings: settings.summary))
@@ -154,13 +171,31 @@ final class MeterModel {
 	}
 
 	func start() {
-		guard canStart, let selected else { return }
+		guard let target = startTarget else { return }
+		begin(target, retry: false)
+	}
+
+	func retry() {
+		guard canRetry, let selected else {
+			error = Strings.Model.retryUnavailable
+			return
+		}
+		begin(selected, retry: true)
+	}
+
+	private func begin(_ key: IterationKey, retry: Bool) {
 		do {
-			try session?.start(selected, uptime: MonotonicTime.now, date: Date(),
-							   connectionDescription: Strings.Connection.description(port: connectedPort, settings: settings.summary))
+			let connection = Strings.Connection.description(port: connectedPort, settings: settings.summary)
+			if retry {
+				try session?.retry(key, uptime: MonotonicTime.now, date: Date(), connectionDescription: connection)
+			} else {
+				try session?.start(key, uptime: MonotonicTime.now, date: Date(), connectionDescription: connection)
+			}
 			measurementActivity = ProcessInfo.processInfo.beginActivity(
 				options: [.userInitiated, .idleSystemSleepDisabled], reason: Strings.Model.activity)
+			selected = key
 			selectedAttemptID = nil
+			generatedCSV = nil
 			notice = nil
 			error = nil
 			timer?.invalidate()
@@ -188,11 +223,17 @@ final class MeterModel {
 		timer = nil
 		endActivity()
 		if let last = session?.attempts.last, !last.complete {
-			notice = Strings.Model.incompleteAttempt(last.stopReason ?? "")
+			notice = session?.completed(last.key) != nil
+				? Strings.Model.previousResultKept(last.stopReason ?? "")
+				: Strings.Model.incompleteAttempt(last.stopReason ?? "")
 		} else {
-			notice = Strings.Model.iterationFinished
+			notice = session?.finalized == true ? Strings.Model.retryFinished : Strings.Model.iterationFinished
 		}
-		if saveRaw, let session, folder != nil { write(session: session, contents: .logs(nil)) }
+		if let session, session.finalized {
+			updateResult(session, announce: false)
+		} else if saveRaw, let session, folder != nil {
+			write(session: session, contents: .logs(nil))
+		}
 	}
 
 	func select(_ key: IterationKey) {
@@ -203,14 +244,9 @@ final class MeterModel {
 
 	func nextIteration() {
 		guard let session else { return }
-		for condition in session.conditions {
-			for number in 1...condition.iterations {
-				let key = IterationKey(conditionID: condition.id, number: number)
-				if session.completed(key) == nil {
-					select(key)
-					return
-				}
-			}
+		if let key = session.nextStartKey(selected: nil) {
+			select(key)
+			return
 		}
 		notice = Strings.Model.allIterationsRecorded
 	}
@@ -222,9 +258,24 @@ final class MeterModel {
 		timer = nil
 		endActivity()
 		guard let session else { return }
+		updateResult(session)
+	}
+
+	private func updateResult(_ session: MeasurementSession, announce: Bool = true) {
 		generatedCSV = MeasurementExport.csv(session)
-		notice = Strings.Export.csvGenerated(needsFolder: folder == nil)
+		if announce { notice = Strings.Export.csvGenerated(needsFolder: folder == nil) }
 		if folder != nil { write(session: session, contents: saveRaw ? .resultAndLogs : .result) }
+	}
+
+	func renameSession(_ name: String) {
+		guard session != nil else {
+			error = Strings.Measurement.invalidState
+			return
+		}
+		do {
+			try session?.rename(name)
+			error = nil
+		} catch { self.error = error.localizedDescription }
 	}
 
 	func newSession() {
@@ -242,7 +293,7 @@ final class MeterModel {
 		let previous = session
 		session = history.remove(at: index)
 		if let previous { history.append(previous) }
-		comparison = (session?.conditions.count ?? 1) > 1
+		if let session { mode = session.mode }
 		if let first = session?.conditions.first {
 			selected = IterationKey(conditionID: first.id, number: 1)
 		}

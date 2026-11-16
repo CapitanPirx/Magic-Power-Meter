@@ -97,6 +97,161 @@ final class MeterModelTests: XCTestCase {
 	}
 
 	@MainActor
+	private func complete(_ model: MeterModel, transport: FakeTransport, power: Double) async throws {
+		let attempt = try XCTUnwrap(model.session?.active)
+		let duration = try XCTUnwrap(model.session?.duration)
+		for second in 0..<Int(duration) {
+			let now = attempt.startUptime + Double(second)
+			transport.emit(.batch(SensorBatch(raw: Data("\(second);5;2;\(power)\n".utf8), lines: [
+				TimedLine(value: .reading(SensorReading(count: UInt64(second), voltage: 5, current: 2, power: power)), beganAt: now)
+			], uptime: now, date: Date())), connection: 0)
+		}
+		transport.emit(.batch(SensorBatch(raw: Data(), lines: [], uptime: attempt.startUptime + duration, date: Date())), connection: 0)
+		await deliverCallbacks()
+	}
+
+	@MainActor
+	func testStartChoosesNextUnfinishedSlotOnPressWithoutAutomaticallyRecording() async throws {
+		for mode in [MeasurementMode.comparison, .sprint] {
+			let (model, transport, _, _) = model()
+			model.mode = mode
+			model.demo = true
+			model.minutes = 0
+			model.seconds = 3
+			model.connect()
+			transport.emit(.ready("fake"), connection: 0)
+			await deliverCallbacks()
+			model.createSession()
+			let keys = try XCTUnwrap(model.session).iterationKeys
+			model.select(keys[1])
+			model.start()
+			XCTAssertEqual(model.session?.active?.key, keys[1])
+			try await complete(model, transport: transport, power: 4)
+			XCTAssertFalse(model.recording)
+			XCTAssertEqual(model.selected, keys[1])
+			XCTAssertTrue(model.canStart)
+			for key in keys where key != keys[1] {
+				model.start()
+				XCTAssertEqual(model.session?.active?.key, key)
+				XCTAssertEqual(model.selected, key)
+				XCTAssertFalse(model.canStart)
+				try await complete(model, transport: transport, power: 5)
+			}
+			XCTAssertEqual(model.session?.completedIterations, keys.count)
+			XCTAssertFalse(model.canStart)
+			model.start()
+			XCTAssertEqual(model.session?.attempts.count, keys.count)
+			model.disconnect()
+		}
+	}
+
+	@MainActor
+	func testRenameAndHistoryPreserveNameIDModeAndSprintTemplateWithoutChangingExportNames() throws {
+		let (model, _, _, _) = model()
+		model.mode = .sprint
+		model.createSession()
+		let original = try XCTUnwrap(model.session)
+		XCTAssertEqual(original.totalIterations, 15)
+		XCTAssertEqual(original.mode, .sprint)
+		model.renameSession(" \nСпринт 42 \n")
+		XCTAssertEqual(model.session?.name, "Спринт 42")
+		XCTAssertEqual(model.session?.id, original.id)
+		XCTAssertEqual(MeasurementExport.filePrefix(try XCTUnwrap(model.session)), MeasurementExport.filePrefix(original))
+		model.renameSession(" \n\t ")
+		XCTAssertEqual(model.error, "Название замера не должно быть пустым.")
+		XCTAssertEqual(model.session?.name, "Спринт 42")
+		model.finalize()
+		model.newSession()
+		XCTAssertEqual(model.history.first?.name, "Спринт 42")
+		model.mode = .single
+		model.createSession()
+		model.showHistory(original.id)
+		XCTAssertEqual(model.mode, .sprint)
+		XCTAssertEqual(model.session?.name, "Спринт 42")
+		XCTAssertEqual(model.session?.conditions.map(\.iterations), [3, 3, 3, 3, 3])
+		model.renameSession("Спринт 42 — исправлено")
+		model.showHistory(try XCTUnwrap(model.history.first).id)
+		XCTAssertEqual(model.history.first?.name, "Спринт 42 — исправлено")
+		XCTAssertEqual(model.history.first?.mode, .sprint)
+	}
+
+	@MainActor
+	func testFinalizedRemeasurementUpdatesCSVAndExportSnapshotOnlyAfterSuccessfulReplacement() async throws {
+		let (model, transport, exporter, _) = model()
+		model.demo = true
+		model.connect()
+		transport.emit(.ready("fake"), connection: 0)
+		await deliverCallbacks()
+		model.folder = URL(fileURLWithPath: "/tmp/fake")
+		model.session = try session(finalized: false)
+		model.finalize()
+		let original = try XCTUnwrap(model.session)
+		let key = original.attempts[0].key
+		model.select(key)
+		XCTAssertTrue(model.canRetry)
+		XCTAssertFalse(model.canStart)
+		model.retry()
+		XCTAssertTrue(model.recording)
+		XCTAssertNil(model.generatedCSV)
+		XCTAssertEqual(model.session?.completedIterations, 2)
+		XCTAssertFalse(model.canRetry)
+		try await complete(model, transport: transport, power: 9)
+		XCTAssertTrue(try XCTUnwrap(model.session).finalized)
+		XCTAssertEqual(model.session?.completedIterations, 2)
+		XCTAssertEqual(model.viewedAttempt?.mean, 9)
+		XCTAssertEqual(model.session?.mean(conditionID: key.conditionID), 6)
+		XCTAssertEqual(model.generatedCSV, MeasurementExport.csv(try XCTUnwrap(model.session)))
+		XCTAssertNotEqual(model.generatedCSV, MeasurementExport.csv(original))
+		XCTAssertEqual(exporter.requests.count, 2)
+		XCTAssertEqual(exporter.requests[1].contents, .resultAndLogs)
+		XCTAssertEqual(exporter.requests[1].session.attempts.count, 3)
+		XCTAssertEqual(exporter.requests[0].session.attempts.count, 2)
+		XCTAssertEqual(exporter.requests[0].session.mean(conditionID: key.conditionID), 3)
+		model.disconnect()
+	}
+
+	@MainActor
+	func testRemeasurementSourceFailureAndAbortRetainPreviousFinalizedResultAndReenableRetry() async throws {
+		let (model, transport, _, _) = model()
+		model.demo = true
+		model.connect()
+		transport.emit(.ready("fake"), connection: 0)
+		await deliverCallbacks()
+		model.session = try session()
+		model.select(try XCTUnwrap(model.session?.attempts.first).key)
+		let original = try XCTUnwrap(model.session)
+		let previousID = model.viewedAttempt?.id
+		model.demo = false
+		XCTAssertFalse(model.canRetry)
+		model.retry()
+		XCTAssertFalse(model.recording)
+		XCTAssertEqual(model.session?.attempts.count, 2)
+		model.demo = true
+		model.retry()
+		transport.emit(.failure("lost sensor"), connection: 0)
+		await deliverCallbacks()
+		XCTAssertEqual(model.error, "lost sensor")
+		XCTAssertFalse(model.recording)
+		XCTAssertTrue(try XCTUnwrap(model.session).finalized)
+		XCTAssertEqual(model.generatedCSV, MeasurementExport.csv(original))
+		XCTAssertEqual(model.viewedAttempt?.id, previousID)
+		XCTAssertFalse(model.canRetry)
+		model.connect()
+		transport.emit(.ready("reconnected"), connection: 1)
+		await deliverCallbacks()
+		XCTAssertTrue(model.canRetry)
+		model.retry()
+		model.stop()
+		XCTAssertTrue(try XCTUnwrap(model.session).finalized)
+		XCTAssertEqual(model.session?.completedIterations, 2)
+		XCTAssertEqual(model.generatedCSV, MeasurementExport.csv(original))
+		XCTAssertEqual(model.viewedAttempt?.id, previousID)
+		XCTAssertEqual(model.session?.attempts.count, 4)
+		XCTAssertTrue(model.canRetry)
+		model.disconnect()
+	}
+
+	@MainActor
 	func testDiscoveryAndConnectionUseInjectedTransportAndCurrentSettings() async {
 		let (model, transport, _, _) = model()
 		transport.discover(.success(["/dev/fake-a", "/dev/fake-b"]), request: 0)
