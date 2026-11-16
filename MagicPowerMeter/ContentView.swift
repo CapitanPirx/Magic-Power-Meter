@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Charts
 
@@ -98,8 +99,9 @@ struct ContentView: View {
 
 	private var connection: some View {
 		HStack(spacing: 14) {
-			Image(systemName: "bolt.horizontal.circle.fill")
-				.font(.system(size: 36)).foregroundStyle(palette.accent)
+			Image(nsImage: NSApplication.shared.applicationIconImage)
+				.renderingMode(.original).resizable().scaledToFit()
+				.frame(width: 44, height: 44).accessibilityHidden(true)
 			VStack(alignment: .leading, spacing: 5) {
 				Text(Strings.UI.currentPort).font(.caption).foregroundStyle(palette.muted)
 				Text(model.connectedPort).font(.system(.body, design: .monospaced)).textSelection(.enabled)

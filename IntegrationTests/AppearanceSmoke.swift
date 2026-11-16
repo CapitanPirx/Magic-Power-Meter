@@ -159,7 +159,11 @@ struct AppearanceSmoke {
 		do {
 			try toggleTest()
 			try contrastTests()
-			if CommandLine.arguments.count == 2 {
+			if CommandLine.arguments.count > 1 {
+				try require(CommandLine.arguments.count == 3, "Usage: appearance-smoke [output-folder built-app-bundle]")
+				let bundle = try Bundle(path: CommandLine.arguments[2]).unwrap("Cannot load the built app bundle")
+				let iconName = try (bundle.object(forInfoDictionaryKey: "CFBundleIconName") as? String).unwrap("App bundle has no icon name")
+				NSApp.applicationIconImage = try bundle.image(forResource: iconName).unwrap("Cannot load the compiled app icon")
 				try previews(folder: URL(fileURLWithPath: CommandLine.arguments[1]))
 			}
 			print("PASS: appearance smoke; no serial sensor opened.")

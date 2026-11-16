@@ -70,8 +70,9 @@ xcodebuild -project MagicPowerMeter.xcodeproj -scheme MagicPowerMeter \
 Core tests run independently of the UI with Swift Package Manager. A desktop integration
 smoke test uses a POSIX pseudoterminal and the explicit demo source (no sensor is opened).
 The appearance smoke test exercises the SwiftUI theme button's binding action and checks contrast.
-Pass an optional output-folder path to capture the app's own hosted SwiftUI previews
+Pass optional output-folder and built `.app` paths to capture the app's own hosted SwiftUI previews
 for both themes (setup, chart, recording, results and port settings), without screen recording.
+The preview process loads the compiled app icon from that bundle instead of its command-line executable icon.
 Means stream values without intermediate arrays or cached statistics, retaining the
 original incremental calculation order. Raw-log writes reuse a date formatter within
 each export, never across concurrent exports. Regression tests pin floating-point results,
