@@ -97,7 +97,7 @@ struct AppearanceSmoke {
 	@MainActor static func recordedSession() throws -> MeasurementSession {
 		let date = Date(timeIntervalSince1970: 1_700_000_000)
 		let conditions = [Condition(name: "База", iterations: 3), Condition(name: "Новое условие", iterations: 3)]
-		var session = MeasurementSession(conditions: conditions, duration: 180, timeout: 8,
+		var session = MeasurementSession(mode: .comparison, conditions: conditions, duration: 180, timeout: 8,
 										 source: .demo, connectionDescription: "DEMO", createdAt: date)
 		for (condition, number, count) in [(0, 1, 180), (0, 2, 40), (1, 1, 180)] {
 			let start = Double(session.attempts.count * 200)

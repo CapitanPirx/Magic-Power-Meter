@@ -1,5 +1,27 @@
 import Foundation
 
+enum MeasurementMode: CaseIterable, Sendable {
+	case single, comparison, sprint
+
+	var title: String {
+		switch self {
+		case .single: return Strings.Common.singleMeasurement
+		case .comparison: return Strings.Common.comparisonMeasurement
+		case .sprint: return Strings.Common.sprintMeasurement
+		}
+	}
+
+	var defaultConditions: [Condition] {
+		switch self {
+		case .single: return [Condition(name: Strings.Common.singleMeasurement, iterations: 1)]
+		case .comparison:
+			return [Condition(name: Strings.Common.base, iterations: 3),
+					Condition(name: Strings.Common.condition(1), iterations: 3)]
+		case .sprint: return Strings.Measurement.sprintScenarios.map { Condition(name: $0, iterations: 3) }
+		}
+	}
+}
+
 enum MeasurementSource: RawRepresentable, Sendable {
 	case serial, demo
 
@@ -63,6 +85,7 @@ struct MeasurementAttempt: Identifiable, Sendable {
 	var chunks: [RawChunk] = []
 	var warnings: [String] = []
 	var complete = false
+	fileprivate(set) var includedInCalculations = false
 	var stopReason: String?
 
 	var mean: Double? {
@@ -86,6 +109,8 @@ struct MeasurementAttempt: Identifiable, Sendable {
 struct MeasurementSession: Sendable {
 	let id = UUID()
 	let createdAt: Date
+	let mode: MeasurementMode
+	private(set) var name: String
 	let conditions: [Condition]
 	let duration: TimeInterval
 	let timeout: TimeInterval
@@ -94,9 +119,12 @@ struct MeasurementSession: Sendable {
 	private(set) var attempts: [MeasurementAttempt] = []
 	private(set) var activeIndex: Int?
 	private(set) var finalized = false
+	private var finalizeAfterAttempt = false
 
-	init(conditions: [Condition], duration: TimeInterval, timeout: TimeInterval,
+	init(mode: MeasurementMode, conditions: [Condition], duration: TimeInterval, timeout: TimeInterval,
 		 source: MeasurementSource, connectionDescription: String, createdAt: Date = Date()) {
+		self.mode = mode
+		self.name = mode.title
 		self.conditions = conditions
 		self.duration = duration
 		self.timeout = timeout
@@ -107,11 +135,30 @@ struct MeasurementSession: Sendable {
 
 	var active: MeasurementAttempt? { activeIndex.map { attempts[$0] } }
 	var totalIterations: Int { conditions.reduce(0) { $0 + $1.iterations } }
-	var completedIterations: Int { attempts.lazy.filter(\.complete).count }
+	var includedAttempts: LazyFilterSequence<[MeasurementAttempt]> { attempts.lazy.filter(\.includedInCalculations) }
+	var completedIterations: Int { includedAttempts.count }
 	var incomplete: Bool { completedIterations != totalIterations }
 
 	func completed(_ key: IterationKey) -> MeasurementAttempt? {
-		attempts.first { $0.key == key && $0.complete }
+		includedAttempts.first { $0.key == key }
+	}
+
+	var iterationKeys: [IterationKey] {
+		conditions.flatMap { condition in
+			(0..<max(0, condition.iterations)).map { IterationKey(conditionID: condition.id, number: $0 + 1) }
+		}
+	}
+
+	func nextStartKey(selected: IterationKey?) -> IterationKey? {
+		guard !finalized, activeIndex == nil else { return nil }
+		if let selected, iterationKeys.contains(selected), completed(selected) == nil { return selected }
+		return iterationKeys.first { completed($0) == nil }
+	}
+
+	mutating func rename(_ name: String) throws {
+		let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !trimmed.isEmpty else { throw MeasurementError.invalidName }
+		self.name = trimmed
 	}
 
 	func latest(_ key: IterationKey) -> MeasurementAttempt? {
@@ -120,13 +167,27 @@ struct MeasurementSession: Sendable {
 
 	mutating func start(_ key: IterationKey, uptime: TimeInterval, date: Date,
 						connectionDescription: String? = nil) throws {
-		guard !finalized, activeIndex == nil else { throw MeasurementError.invalidState }
+		try begin(key, retry: false, uptime: uptime, date: date, connectionDescription: connectionDescription)
+	}
+
+	mutating func retry(_ key: IterationKey, uptime: TimeInterval, date: Date,
+						connectionDescription: String? = nil) throws {
+		guard mode != .single, latest(key) != nil else { throw MeasurementError.invalidIteration }
+		try begin(key, retry: true, uptime: uptime, date: date, connectionDescription: connectionDescription)
+	}
+
+	private mutating func begin(_ key: IterationKey, retry: Bool, uptime: TimeInterval, date: Date,
+								connectionDescription: String?) throws {
+		guard (retry || !finalized), activeIndex == nil else { throw MeasurementError.invalidState }
 		guard duration.isFinite, duration > 0, timeout.isFinite, timeout > 0,
 			  let condition = conditions.first(where: { $0.id == key.conditionID }),
-			  condition.iterations > 0, (1...condition.iterations).contains(key.number), completed(key) == nil else {
+			  condition.iterations > 0, (1...condition.iterations).contains(key.number),
+			  retry || completed(key) == nil else {
 			throw MeasurementError.invalidIteration
 		}
 		let number = attempts.lazy.filter { $0.key == key }.count + 1
+		finalizeAfterAttempt = finalized
+		finalized = false
 		attempts.append(MeasurementAttempt(key: key, number: number, startedAt: date, startUptime: uptime,
 										   connectionDescription: connectionDescription ?? self.connectionDescription))
 		activeIndex = attempts.count - 1
@@ -201,8 +262,16 @@ struct MeasurementSession: Sendable {
 		attempts[index].stoppedAfter = max(0, uptime - attempts[index].startUptime)
 		attempts[index].endedAt = date
 		attempts[index].complete = complete && !attempts[index].samples.isEmpty
+		if attempts[index].complete {
+			let key = attempts[index].key
+			for previous in attempts.indices where attempts[previous].key == key {
+				attempts[previous].includedInCalculations = previous == index
+			}
+		}
 		attempts[index].stopReason = reason
 		activeIndex = nil
+		finalized = finalizeAfterAttempt
+		finalizeAfterAttempt = false
 	}
 
 	mutating func finalize(uptime: TimeInterval, date: Date) {
@@ -211,18 +280,19 @@ struct MeasurementSession: Sendable {
 	}
 
 	func mean(conditionID: UUID) -> Double? {
-		let values = attempts.lazy.filter { $0.complete && $0.key.conditionID == conditionID }.compactMap(\.mean)
+		let values = includedAttempts.filter { $0.key.conditionID == conditionID }.compactMap(\.mean)
 		return Numeric.mean(values)
 	}
 
 }
 
 enum MeasurementError: LocalizedError {
-	case invalidState, invalidIteration
+	case invalidState, invalidIteration, invalidName
 	var errorDescription: String? {
 		switch self {
 		case .invalidState: return Strings.Measurement.invalidState
 		case .invalidIteration: return Strings.Measurement.invalidIteration
+		case .invalidName: return Strings.Measurement.invalidName
 		}
 	}
 }

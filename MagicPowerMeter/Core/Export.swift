@@ -24,7 +24,7 @@ enum MeasurementExport {
 		var header = [Strings.Common.iteration]
 		for (index, condition) in session.conditions.enumerated() {
 			header.append(Strings.Export.powerHeader(condition.name))
-			if index > 0 {
+			if session.mode == .comparison && index > 0 {
 				header += [Strings.Export.deltaHeader(condition.name), Strings.Export.percentHeader(condition.name)]
 			}
 		}
@@ -35,7 +35,7 @@ enum MeasurementExport {
 			let base = row.values.first ?? nil
 			for (index, value) in row.values.enumerated() {
 				record.append(value.map(Numeric.text) ?? "")
-				if index > 0 {
+				if session.mode == .comparison && index > 0 {
 					record += [
 						Numeric.delta(value, base: base).map(Numeric.text) ?? "",
 						Numeric.percent(value, base: base).map(Numeric.text) ?? ""
@@ -91,7 +91,7 @@ enum MeasurementExport {
 				"source": session.source.rawValue, "connection": attempt.connectionDescription,
 				"session_id": session.id.uuidString, "incomplete_result": session.incomplete,
 				"condition": condition.name, "iteration": attempt.key.number, "attempt": attempt.number,
-				"complete": attempt.complete, "included_in_calculations": attempt.complete,
+				"complete": attempt.complete, "included_in_calculations": attempt.includedInCalculations,
 				"started_at": dateFormatter.string(from: attempt.startedAt),
 				"ended_at": attempt.endedAt.map { dateFormatter.string(from: $0) } ?? "",
 				"duration_seconds": attempt.elapsed, "target_seconds": session.duration,

@@ -7,6 +7,7 @@ enum Strings {
 		static let base = "База"
 		static let singleMeasurement = "Одиночный замер"
 		static let comparisonMeasurement = "Сравнительный замер"
+		static let sprintMeasurement = "Ежеспринтовый замер"
 		static let mean = "Среднее"
 		static let iteration = "Итерация"
 		static let source = "Источник"
@@ -21,6 +22,11 @@ enum Strings {
 	}
 
 	enum Measurement {
+		static let sprintScenarios = [
+			"ВДНХ статика (авторизован)", "ВДНХ статика (неавторизован)",
+			"ВДНХ динамика (авторизован)", "ВДНХ динамика (неавторизован)", "Сочи Дендрарий динамика"
+		]
+		static let invalidName = "Название замера не должно быть пустым."
 		static let sensorSource = "ДАТЧИК"
 		static let demoSource = "ДЕМО — СИНТЕТИЧЕСКИЕ ДАННЫЕ"
 		static let invalidUTF8 = "Строка не является UTF-8"

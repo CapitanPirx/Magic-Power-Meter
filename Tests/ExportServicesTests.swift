@@ -5,7 +5,7 @@ final class ExportServicesTests: XCTestCase {
 	private func session() throws -> MeasurementSession {
 		let date = Date(timeIntervalSince1970: 1_700_000_000)
 		let condition = Condition(name: "База", iterations: 2)
-		var session = MeasurementSession(conditions: [condition], duration: 3, timeout: 8,
+		var session = MeasurementSession(mode: .single, conditions: [condition], duration: 3, timeout: 8,
 										 source: .demo, connectionDescription: "test", createdAt: date)
 		for number in 1...2 {
 			let start = Double(number * 10)

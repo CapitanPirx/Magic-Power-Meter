@@ -66,21 +66,123 @@ final class PowerMeterCoreTests: XCTestCase {
 	}
 
 	func makeSession(iterations: [Int] = [2, 1]) -> MeasurementSession {
-		MeasurementSession(conditions: iterations.enumerated().map {
+		MeasurementSession(mode: .comparison, conditions: iterations.enumerated().map {
 			Condition(name: $0.offset == 0 ? "База; \"A\"" : "Новое\nусловие", iterations: $0.element)
 		}, duration: 3, timeout: 8, source: .demo, connectionDescription: "DEMO", createdAt: date)
 	}
 
 	func record(_ session: inout MeasurementSession, condition: Int, iteration: Int, power: Double,
-				start: Double = 0) throws {
+				start: Double = 0, retry: Bool = false) throws {
 		let key = IterationKey(conditionID: session.conditions[condition].id, number: iteration)
-		try session.start(key, uptime: start, date: date)
+		if retry {
+			try session.retry(key, uptime: start, date: date)
+		} else {
+			try session.start(key, uptime: start, date: date)
+		}
 		var decoder = StreamDecoder()
 		for offset in 0..<3 {
 			session.receive(decoder.receive(Data("\(offset);5;2;\(power)\r\n".utf8),
 											uptime: start + Double(offset), date: date.addingTimeInterval(Double(offset))))
 		}
 		session.tick(uptime: start + 3, date: date.addingTimeInterval(3))
+	}
+
+	func testStartTargetHonorsUnfinishedSelectionThenNextPlannedSlotAndStopsWhenAllComplete() throws {
+		var session = makeSession(iterations: [1, 1])
+		let first = IterationKey(conditionID: session.conditions[0].id, number: 1)
+		let second = IterationKey(conditionID: session.conditions[1].id, number: 1)
+		XCTAssertEqual(session.nextStartKey(selected: second), second)
+		try record(&session, condition: 0, iteration: 1, power: 2)
+		XCTAssertEqual(session.nextStartKey(selected: first), second)
+		try session.start(second, uptime: 5, date: date)
+		XCTAssertNil(session.nextStartKey(selected: first))
+		session.stop(uptime: 6, date: date)
+		XCTAssertEqual(session.nextStartKey(selected: second), second)
+		try record(&session, condition: 1, iteration: 1, power: 4, start: 10)
+		XCTAssertNil(session.nextStartKey(selected: first))
+		XCTAssertThrowsError(try session.start(first, uptime: 20, date: date))
+	}
+
+	func testSuccessfulRetryReplacesOneResultPreservesRawAndMarksSupersededMetadata() throws {
+		var session = makeSession(iterations: [1, 1])
+		try record(&session, condition: 0, iteration: 1, power: 2)
+		try record(&session, condition: 1, iteration: 1, power: 4, start: 5)
+		let original = session.attempts[0]
+		let key = original.key
+		session.finalize(uptime: 9, date: date)
+		try record(&session, condition: 0, iteration: 1, power: 8, start: 10, retry: true)
+		XCTAssertTrue(session.finalized)
+		XCTAssertEqual(session.completedIterations, 2)
+		XCTAssertFalse(session.incomplete)
+		XCTAssertEqual(session.mean(conditionID: key.conditionID), 8)
+		XCTAssertEqual(session.completed(key)?.id, session.attempts[2].id)
+		XCTAssertTrue(session.attempts[0].complete)
+		XCTAssertFalse(session.attempts[0].includedInCalculations)
+		XCTAssertTrue(session.attempts[2].includedInCalculations)
+		XCTAssertEqual(session.attempts[0].chunks[0].data, original.chunks[0].data)
+		let csv = String(decoding: MeasurementExport.csv(session), as: UTF8.self)
+		XCTAssertTrue(csv.contains("1;8,000;4,000;-4,000;-50,000;Полный результат"))
+		let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let output = try MeasurementExport.writeLogs(session, folder: folder)
+		for (number, included) in [(1, false), (2, true)] {
+			let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+				output.appendingPathComponent("DEMO-condition-1-iteration-1-attempt-\(number).json"))) as? [String: Any])
+			XCTAssertEqual(json["complete"] as? Bool, true)
+			XCTAssertEqual(json["included_in_calculations"] as? Bool, included)
+		}
+	}
+
+	func testInterruptedAndTimedOutFinalizedRetriesKeepPreviousSuccessfulResult() throws {
+		var session = makeSession(iterations: [1, 1])
+		try record(&session, condition: 0, iteration: 1, power: 2)
+		session.finalize(uptime: 4, date: date)
+		let previous = session.completed(session.attempts[0].key)?.id
+		let originalCSV = MeasurementExport.csv(session)
+		for timeout in [false, true] {
+			try session.retry(session.attempts[0].key, uptime: 10, date: date)
+			XCTAssertFalse(session.finalized)
+			XCTAssertEqual(session.completedIterations, 1)
+			XCTAssertEqual(session.completed(session.attempts[0].key)?.id, previous)
+			XCTAssertThrowsError(try session.retry(session.attempts[0].key, uptime: 11, date: date))
+			if timeout { session.tick(uptime: 19, date: date) }
+			else { session.stop(uptime: 11, date: date) }
+			XCTAssertTrue(session.finalized)
+			XCTAssertFalse(try XCTUnwrap(session.attempts.last).complete)
+			XCTAssertFalse(try XCTUnwrap(session.attempts.last).includedInCalculations)
+			XCTAssertEqual(MeasurementExport.csv(session), originalCSV)
+		}
+		XCTAssertEqual(session.attempts.count, 3)
+	}
+
+	func testSprintTemplateAndResultsAreIndependentWithoutDeltaColumns() throws {
+		var session = MeasurementSession(mode: .sprint, conditions: MeasurementMode.sprint.defaultConditions,
+										 duration: 3, timeout: 8, source: .demo, connectionDescription: "fake", createdAt: date)
+		XCTAssertEqual(session.conditions.map(\.name), [
+			"ВДНХ статика (авторизован)", "ВДНХ статика (неавторизован)",
+			"ВДНХ динамика (авторизован)", "ВДНХ динамика (неавторизован)", "Сочи Дендрарий динамика"
+		])
+		XCTAssertEqual(session.conditions.map(\.iterations), [3, 3, 3, 3, 3])
+		XCTAssertEqual(session.totalIterations, 15)
+		try record(&session, condition: 1, iteration: 1, power: 4)
+		try record(&session, condition: 1, iteration: 2, power: 8, start: 5)
+		XCTAssertNil(session.mean(conditionID: session.conditions[0].id))
+		XCTAssertEqual(MeasurementExport.rows(session).last?.values[1], 6)
+		let csv = String(decoding: MeasurementExport.csv(session), as: UTF8.self)
+		XCTAssertFalse(csv.contains("Δ"))
+		XCTAssertTrue(csv.contains("Среднее;;6,000;;;;Неполный результат"))
+		try record(&session, condition: 1, iteration: 1, power: 10, start: 10, retry: true)
+		XCTAssertEqual(session.mean(conditionID: session.conditions[1].id), 9)
+		XCTAssertEqual(session.completedIterations, 2)
+	}
+
+	func testSingleModeDoesNotAllowExplicitRemeasurement() throws {
+		var session = MeasurementSession(mode: .single, conditions: [Condition(name: "Один", iterations: 1)],
+										 duration: 3, timeout: 8, source: .demo, connectionDescription: "fake")
+		try record(&session, condition: 0, iteration: 1, power: 2)
+		XCTAssertThrowsError(try session.retry(session.attempts[0].key, uptime: 10, date: date))
+		XCTAssertEqual(session.attempts.count, 1)
+		XCTAssertEqual(session.completedIterations, 1)
 	}
 
 	func testTimerUsesMonotonicTimeNotSampleCountOrWallClock() throws {
@@ -159,7 +261,7 @@ final class PowerMeterCoreTests: XCTestCase {
 
 	func testTimeoutGapsCorruptionAndResetAreVisible() throws {
 		let condition = Condition(name: "База", iterations: 1)
-		var session = MeasurementSession(conditions: [condition], duration: 30, timeout: 3,
+		var session = MeasurementSession(mode: .single, conditions: [condition], duration: 30, timeout: 3,
 										 source: .serial, connectionDescription: "PTY")
 		try session.start(IterationKey(conditionID: condition.id, number: 1), uptime: 0, date: date)
 		var decoder = StreamDecoder()
@@ -331,7 +433,7 @@ final class PowerMeterCoreTests: XCTestCase {
 	}
 
 	func testCSVBytesPreserveZeroBaseEscapingAndMeanDeltas() throws {
-		var session = MeasurementSession(conditions: [
+		var session = MeasurementSession(mode: .comparison, conditions: [
 			Condition(name: "База; \"A\"", iterations: 2), Condition(name: "Новое условие", iterations: 1)
 		], duration: 3, timeout: 8, source: .demo, connectionDescription: "DEMO", createdAt: date)
 		try record(&session, condition: 0, iteration: 1, power: 0)

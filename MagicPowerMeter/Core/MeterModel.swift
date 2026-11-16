@@ -142,7 +142,8 @@ final class MeterModel {
 			error = Strings.Model.invalidConditions
 			return
 		}
-		session = MeasurementSession(conditions: plan, duration: duration, timeout: settings.timeout,
+		session = MeasurementSession(mode: comparison ? .comparison : .single,
+									 conditions: plan, duration: duration, timeout: settings.timeout,
 									 source: demo ? .demo : .serial,
 									 connectionDescription: Strings.Connection.description(port: connectedPort, settings: settings.summary))
 		selected = IterationKey(conditionID: plan[0].id, number: 1)

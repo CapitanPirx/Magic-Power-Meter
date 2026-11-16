@@ -82,7 +82,7 @@ final class MeterModelTests: XCTestCase {
 	private func session(finalized: Bool = true) throws -> MeasurementSession {
 		let date = Date(timeIntervalSince1970: 1_700_000_000)
 		let condition = Condition(name: "База", iterations: 2)
-		var session = MeasurementSession(conditions: [condition], duration: 3, timeout: 8,
+		var session = MeasurementSession(mode: .comparison, conditions: [condition], duration: 3, timeout: 8,
 										 source: .demo, connectionDescription: "fake", createdAt: date)
 		for number in 1...2 {
 			let start = Double(number * 10)
