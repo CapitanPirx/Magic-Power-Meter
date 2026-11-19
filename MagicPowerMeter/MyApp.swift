@@ -34,10 +34,7 @@ import SwiftUI
 
 	private var documentationCredits: NSAttributedString {
 		let credits = NSMutableAttributedString()
-		for (title, url) in [
-			(Strings.UI.githubDocumentation, Documentation.github),
-			(Strings.UI.confluenceDocumentation, Documentation.confluence)
-		] {
+		for (title, url) in [(Strings.UI.githubDocumentation, Documentation.github)] {
 			if credits.length > 0 { credits.append(NSAttributedString(string: "\n")) }
 			credits.append(NSAttributedString(string: title, attributes: [
 				.link: url,

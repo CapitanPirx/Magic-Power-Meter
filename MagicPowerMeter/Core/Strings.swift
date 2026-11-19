@@ -150,7 +150,6 @@ enum Strings {
 	enum UI {
 		static let aboutApp = "О приложении Magic Power Meter"
 		static let githubDocumentation = "Документация на GitHub"
-		static let confluenceDocumentation = "Документация в Confluence"
 		static let arduinoSketchHelp = "Для передачи корректных данных с датчика на Arduino нужно использовать скетч PowerConsumption.ino."
 		static let arduinoDocumentation = "Инструкция и скетч PowerConsumption.ino"
 		static let easterEggTitle = "Древняя Магия"
