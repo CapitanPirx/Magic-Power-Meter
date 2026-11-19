@@ -70,6 +70,7 @@ private struct MeterAppearance: ViewModifier {
 		let palette = MeterPalette(colorScheme: colorScheme)
 		content
 			.environment(\.meterPalette, palette)
+			.environment(\.colorScheme, colorScheme)
 			.preferredColorScheme(colorScheme)
 			.foregroundStyle(palette.ink)
 			.tint(palette.accent)

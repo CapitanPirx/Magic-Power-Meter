@@ -146,6 +146,57 @@ final class MeterModelTests: XCTestCase {
 	}
 
 	@MainActor
+	func testEditedSprintLocationsBecomeIndependentSessionPlan() throws {
+		let (model, _, _, _) = model()
+		model.mode = .sprint
+		model.sprintConditions[0].name = "Новая площадка"
+		model.sprintConditions[0].iterations = 1
+		model.sprintConditions[2].iterations = 50
+		model.sprintConditions.remove(at: 1)
+		model.sprintConditions.append(Condition(name: "Другой город", iterations: 3))
+		let plan = model.sprintConditions
+
+		model.mode = .single
+		model.mode = .sprint
+		model.createSession()
+		let session = try XCTUnwrap(model.session)
+		XCTAssertEqual(session.conditions, plan)
+		XCTAssertEqual(session.conditions.map(\.iterations), [1, 50, 3, 3, 3])
+		XCTAssertEqual(session.totalIterations, 60)
+		XCTAssertEqual(model.selected?.conditionID, plan[0].id)
+
+		model.sprintConditions[0].name = "Следующий спринт"
+		model.sprintConditions[0].iterations = 2
+		model.sprintConditions.removeLast()
+		XCTAssertEqual(model.session?.conditions, plan)
+		model.finalize()
+		model.newSession()
+		model.createSession()
+		XCTAssertEqual(model.session?.conditions, model.sprintConditions)
+		XCTAssertEqual(model.history.first?.conditions, plan)
+	}
+
+	@MainActor
+	func testSprintAcceptsOneLocationAndRejectsEmptyOrBlankPlans() throws {
+		let (model, _, _, _) = model()
+		model.mode = .sprint
+		model.sprintConditions = []
+		model.createSession()
+		XCTAssertNil(model.session)
+		XCTAssertNotNil(model.error)
+
+		model.sprintConditions = [Condition(name: " \n\t ", iterations: 3)]
+		model.createSession()
+		XCTAssertNil(model.session)
+		XCTAssertNotNil(model.error)
+
+		model.sprintConditions[0].name = "Одна локация"
+		model.createSession()
+		XCTAssertEqual(model.session?.totalIterations, 3)
+		XCTAssertNil(model.error)
+	}
+
+	@MainActor
 	func testRenameAndHistoryPreserveNameIDModeAndSprintTemplateWithoutChangingExportNames() throws {
 		let (model, _, _, _) = model()
 		model.mode = .sprint

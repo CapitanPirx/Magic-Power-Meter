@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import OSLog
 import SwiftUI
 
@@ -7,8 +8,44 @@ enum AppearanceFailure: Error {
 }
 
 @MainActor
+@Observable
 final class AppearanceSelection {
 	var scheme: ColorScheme = .dark
+}
+
+private struct AppearanceProbe: View {
+	@Environment(\.colorScheme) private var colorScheme
+	let report: (ColorScheme) -> Void
+
+	var body: some View {
+		Color.clear
+			.onAppear { report(colorScheme) }
+			.onChange(of: colorScheme) { _, value in report(value) }
+	}
+}
+
+private struct SwitchingAppearanceView: View {
+	let selection: AppearanceSelection
+	let report: (ColorScheme) -> Void
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 16) {
+			Menu("Measurements") { Button("Iteration 1") {} }
+				.frame(width: 240, height: 32)
+			Picker("Iteration", selection: .constant(1)) {
+				Text("Iteration 1").tag(1)
+				Text("Iteration 2").tag(2)
+			}
+			.labelsHidden()
+			.frame(width: 240, height: 32)
+			AppearanceProbe(report: report)
+				.frame(height: 0)
+		}
+		.padding(20)
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+		.background(MeterPalette(colorScheme: selection.scheme).page)
+		.meterAppearance(selection.scheme)
+	}
 }
 
 final class AppearanceTransport: SensorTransport, Sendable {
@@ -43,6 +80,44 @@ struct AppearanceSmoke {
 		print("PASS: SwiftUI button's action handler switches its bound selection dark -> light -> dark.")
 	}
 
+	@MainActor static func liveAppearanceTest() throws {
+		let selection = AppearanceSelection()
+		var observed: ColorScheme?
+		let host = NSHostingView(rootView: SwitchingAppearanceView(selection: selection) { observed = $0 })
+		let window = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 400, height: 180),
+							  styleMask: [.borderless], backing: .buffered, defer: false)
+		window.contentView = host
+		window.orderFront(nil)
+		defer { window.orderOut(nil) }
+		for scheme in [ColorScheme.dark, .light, .dark, .light] {
+			selection.scheme = scheme
+			settle()
+			host.layoutSubtreeIfNeeded()
+			try require(observed == scheme, "Controls retained the previous color-scheme environment")
+			let appearance = host.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+			try require(appearance == (scheme == .dark ? .darkAqua : .aqua),
+						"Native controls retained the previous appearance")
+			let bitmap = try host.bitmapImageRepForCachingDisplay(in: host.bounds).unwrap("Cannot capture controls")
+			host.cacheDisplay(in: host.bounds, to: bitmap)
+			let scale = Double(bitmap.pixelsWide) / host.bounds.width
+			for top in [20, 68] {
+				var visibleTextPixels = 0
+				for y in Int(Double(top) * scale)..<Int(Double(top + 32) * scale) {
+					for x in Int(20 * scale)..<Int(260 * scale) {
+						let color = try (bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+							.unwrap("Cannot read control pixels")
+						let brightness = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+						if scheme == .dark ? brightness > 0.7 : brightness < 0.3 {
+							visibleTextPixels += 1
+						}
+					}
+				}
+				try require(visibleTextPixels > 100, "\(scheme) menu/picker text has insufficient contrast after switching")
+			}
+		}
+		print("PASS: repeated live theme changes preserve visible menu/picker text and native appearance.")
+	}
+
 	@MainActor static func luminance(_ color: Color) throws -> Double {
 		let rgb = try NSColor(color).usingColorSpace(.sRGB).unwrap("Cannot resolve palette color")
 		func linear(_ value: CGFloat) -> Double {
@@ -50,6 +125,43 @@ struct AppearanceSmoke {
 			return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
 		}
 		return 0.2126 * linear(rgb.redComponent) + 0.7152 * linear(rgb.greenComponent) + 0.0722 * linear(rgb.blueComponent)
+	}
+
+	@MainActor static func sprintDeletionTest() throws {
+		let model = model()
+		model.mode = .sprint
+		model.sprintConditions[2].name = "Renamed location"
+		let original = model.sprintConditions
+		let host = NSHostingView(rootView: ContentView(model: model, colorScheme: .constant(.dark)).meterAppearance(.dark))
+		let window = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1120, height: 1100),
+							  styleMask: [.borderless], backing: .buffered, defer: false)
+		window.contentView = host
+		window.orderFront(nil)
+		defer { window.orderOut(nil) }
+
+		func deleteButtons(in view: NSView) -> [NSButton] {
+			if let button = view as? NSButton, button.convert(button.bounds, to: host).minX > host.bounds.midX {
+				return [button]
+			}
+			return view.subviews.flatMap { deleteButtons(in: $0) }
+				.sorted { $0.convert($0.bounds, to: host).minY < $1.convert($1.bounds, to: host).minY }
+		}
+
+		for removedCount in 0..<(original.count - 1) {
+			settle()
+			host.layoutSubtreeIfNeeded()
+			let buttons = deleteButtons(in: host)
+			try require(buttons.count == model.sprintConditions.count, "Missing location delete buttons")
+			let button = try buttons.first.unwrap("Cannot find location delete button")
+			try require(button.isEnabled, "Location delete button disabled too early")
+			button.performClick(nil)
+			settle()
+			try require(model.sprintConditions == Array(original.dropFirst(removedCount + 1)),
+						"Delete action removed the wrong location or changed other rows")
+		}
+		let lastButton = try deleteButtons(in: host).first.unwrap("Missing last location delete button")
+		try require(!lastButton.isEnabled, "Last location must not be deleted")
+		print("PASS: actual sprint delete buttons remove successive rows without conflicting binding accesses.")
 	}
 
 	@MainActor static func contrast(_ first: Color, _ second: Color) throws -> Double {
@@ -235,6 +347,8 @@ struct AppearanceSmoke {
 		NSApp.finishLaunching()
 		do {
 			try toggleTest()
+			try liveAppearanceTest()
+			try sprintDeletionTest()
 			try contrastTests()
 			try clockTests()
 			if CommandLine.arguments.count > 1 {

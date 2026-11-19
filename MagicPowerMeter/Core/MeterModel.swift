@@ -15,7 +15,7 @@ final class MeterModel {
 	var notice: String?
 	var mode: MeasurementMode = .single
 	var conditions = MeasurementMode.comparison.defaultConditions
-	let sprintConditions = MeasurementMode.sprint.defaultConditions
+	var sprintConditions = MeasurementMode.sprint.defaultConditions
 	var minutes = 3
 	var seconds = 0
 	var session: MeasurementSession?

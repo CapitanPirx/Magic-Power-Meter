@@ -189,12 +189,26 @@ struct ContentView: View {
 					}.disabled(model.conditions.count >= 12)
 					Divider()
 				} else if model.mode == .sprint {
-					ForEach(model.sprintConditions) { condition in
+					ForEach($model.sprintConditions) { $condition in
 						HStack {
-							Text(condition.name)
-							Spacer()
-							Text(Strings.UI.iterations(condition.iterations)).foregroundStyle(palette.muted)
+							TextField(Strings.UI.locationName, text: $condition.name)
+								.textFieldStyle(.roundedBorder)
+							Stepper(value: $condition.iterations, in: 1...50) {
+								Text(Strings.UI.iterations(condition.iterations)).monospacedDigit().frame(width: 55)
+							}.frame(width: 105)
+							Button(role: .destructive) {
+								let id = condition.id
+								model.sprintConditions.removeAll { $0.id == id }
+							} label: {
+								Image(systemName: "minus.circle")
+							}
+							.disabled(model.sprintConditions.count <= 1)
+							.buttonStyle(.borderless)
+							.accessibilityLabel(Strings.UI.removeLocation)
 						}
+					}
+					Button(Strings.UI.addLocation) {
+						model.sprintConditions.append(Condition(name: Strings.UI.newLocation, iterations: 3))
 					}
 					Divider()
 				}
