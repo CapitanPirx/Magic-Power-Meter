@@ -148,6 +148,14 @@ enum Strings {
 	}
 
 	enum UI {
+		static let aboutApp = "О приложении Magic Power Meter"
+		static let githubDocumentation = "Документация на GitHub"
+		static let confluenceDocumentation = "Документация в Confluence"
+		static let arduinoSketchHelp = "Для передачи корректных данных с датчика на Arduino нужно использовать скетч PowerConsumption.ino."
+		static let arduinoDocumentation = "Инструкция и скетч PowerConsumption.ino"
+		static let easterEggTitle = "Древняя Магия"
+		static let easterEggMessage = "Здравствуй, мой любопытный друг! Это прекрасное приложение было создано адептом ордена Древней Магии, которого зовут Павел Маташнёв. Если тебе нравится приложение, можешь кинуть ему спасибок :3"
+		static let ok = "ОК"
 		static let lightTheme = "Светлая тема"
 		static let darkTheme = "Тёмная тема"
 		static let switchToLightTheme = "Переключить на светлую тему"
@@ -173,7 +181,7 @@ enum Strings {
 		static let demoBadge = "ДЕМО · синтетические данные"
 		static let history = "Другие замеры в памяти"
 		static let chooseMeasurement = "Выбрать замер"
-		static let footer = "Magic Power Meter · Arduino + INA219 · данные и прогресс хранятся в памяти до выхода из приложения"
+		static let footer = "Magic Power Meter · Arduino + INA219 · Древняя Магия сохраняет данные и прогресс до выхода из приложения"
 		static let finishEarly = "Завершить замер досрочно?"
 		static let continueMeasuring = "Продолжить измерения"
 		static let finishIncomplete = "Завершить с неполным результатом"

@@ -23,5 +23,27 @@ import SwiftUI
 				.meterAppearance(colorScheme)
 		}
 		.defaultSize(width: 1060, height: 1000)
+		.commands {
+			CommandGroup(replacing: .appInfo) {
+				Button(Strings.UI.aboutApp) {
+					NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: documentationCredits])
+				}
+			}
+		}
+	}
+
+	private var documentationCredits: NSAttributedString {
+		let credits = NSMutableAttributedString()
+		for (title, url) in [
+			(Strings.UI.githubDocumentation, Documentation.github),
+			(Strings.UI.confluenceDocumentation, Documentation.confluence)
+		] {
+			if credits.length > 0 { credits.append(NSAttributedString(string: "\n")) }
+			credits.append(NSAttributedString(string: title, attributes: [
+				.link: url,
+				.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)
+			]))
+		}
+		return credits
 	}
 }

@@ -20,6 +20,7 @@ struct ContentView: View {
 	@Binding var colorScheme: ColorScheme
 	@Environment(\.meterPalette) private var palette
 	@State private var showSettings = false
+	@State private var showEasterEgg = false
 	@State private var confirmFinish = false
 	@State var resultsTab: ResultsTab = .table
 
@@ -110,7 +111,15 @@ struct ContentView: View {
 		HStack(spacing: 14) {
 			Image(nsImage: NSApplication.shared.applicationIconImage)
 				.renderingMode(.original).resizable().scaledToFit()
-				.frame(width: 44, height: 44).accessibilityHidden(true)
+				.frame(width: 88, height: 88)
+				.contentShape(Rectangle())
+				.onTapGesture(count: 3) { showEasterEgg = true }
+				.accessibilityHidden(true)
+				.alert(Strings.UI.easterEggTitle, isPresented: $showEasterEgg) {
+					Button(Strings.UI.ok, role: .cancel) {}
+				} message: {
+					Text(Strings.UI.easterEggMessage)
+				}
 			VStack(alignment: .leading, spacing: 5) {
 				Text(Strings.UI.currentPort).font(.caption).foregroundStyle(palette.muted)
 				Text(model.connectedPort).font(.system(.body, design: .monospaced)).textSelection(.enabled)
@@ -643,6 +652,13 @@ struct PortSettingsView: View {
 				Text(Strings.UI.serialHelp)
 					.font(.caption).foregroundStyle(palette.muted)
 			}.disabled(demo)
+			VStack(alignment: .leading, spacing: 6) {
+				Text(Strings.UI.arduinoSketchHelp)
+					.font(.caption).foregroundStyle(palette.muted)
+					.fixedSize(horizontal: false, vertical: true)
+				Link(Strings.UI.arduinoDocumentation, destination: Documentation.arduino)
+					.foregroundStyle(palette.accent)
+			}
 			Text(model.connectionStatus).font(.caption).foregroundStyle(palette.muted)
 			ScrollView {
 				Text(model.preview.isEmpty ? Strings.UI.preview : model.preview)
