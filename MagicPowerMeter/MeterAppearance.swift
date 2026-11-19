@@ -80,9 +80,10 @@ private struct MeterAppearance: ViewModifier {
 private struct MeterCard: ViewModifier {
 	@Environment(\.meterPalette) private var palette
 	let background: Color?
+	let padding: CGFloat
 
 	func body(content: Content) -> some View {
-		content.padding(18)
+		content.padding(padding)
 			.background(background ?? palette.surface, in: RoundedRectangle(cornerRadius: 11))
 			.overlay(RoundedRectangle(cornerRadius: 11).stroke(palette.border, lineWidth: 1))
 	}
@@ -123,8 +124,8 @@ extension View {
 		modifier(MeterAppearance(colorScheme: colorScheme))
 	}
 
-	func meterCard(background: Color? = nil) -> some View {
-		modifier(MeterCard(background: background))
+	func meterCard(background: Color? = nil, padding: CGFloat = 18) -> some View {
+		modifier(MeterCard(background: background, padding: padding))
 	}
 }
 

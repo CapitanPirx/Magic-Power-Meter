@@ -199,6 +199,166 @@ struct AppearanceSmoke {
 		print("PASS: production m:ss formatter preserves second padding, guards and large values.")
 	}
 
+	@MainActor static func scrollViews(in view: NSView) -> [NSScrollView] {
+		(view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+	}
+
+	@MainActor static func resultsLayoutTest() throws {
+		let cases: [(MeasurementMode, Bool)] = [(.single, false), (.comparison, false), (.sprint, false), (.sprint, true)]
+		for scheme in [ColorScheme.dark, .light] {
+			let palette = MeterPalette(colorScheme: scheme)
+			for (mode, large) in cases {
+				let conditions = large ? (1...20).map { Condition(name: "Локация \($0)", iterations: 50) } : mode.defaultConditions
+				var session = MeasurementSession(mode: mode, conditions: conditions, duration: 180, timeout: 8,
+												 source: .demo, connectionDescription: "DEMO")
+				session.finalize(uptime: 0, date: Date())
+				for size in [NSSize(width: 900, height: 360), NSSize(width: 1600, height: 700)] {
+					let host = NSHostingView(rootView: ResultsView(session: session).meterAppearance(scheme)
+						.overlay(alignment: .topLeading) {
+							HStack(spacing: 0) {
+								palette.raised.frame(width: 4, height: 4)
+								palette.selection.frame(width: 4, height: 4)
+							}
+						})
+					let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -3000, y: -3000), size: size),
+										  styleMask: [.borderless], backing: .buffered, defer: false)
+					window.contentView = host
+					window.orderFront(nil)
+					defer { window.orderOut(nil) }
+					settle()
+					host.layoutSubtreeIfNeeded()
+					let label = "\(scheme) \(mode) \(size) large=\(large)"
+					let scroll = try scrollViews(in: host).first.unwrap("\(label): missing results scroll view")
+					let document = try scroll.documentView.unwrap("\(label): missing table content")
+					let viewport = scroll.contentView.bounds.size
+					try require(document.bounds.width >= viewport.width - 1 && document.bounds.height >= viewport.height - 1,
+								"\(label): table does not fill the available area")
+					if large {
+						try require(document.bounds.width > viewport.width && document.bounds.height > viewport.height,
+									"\(label): large tables must remain scrollable in both directions")
+						continue
+					}
+					try require(document.bounds.width <= viewport.width + 1 && document.bounds.height <= viewport.height + 1,
+								"\(label): default table unexpectedly needs scrolling")
+					let bitmap = try host.bitmapImageRepForCachingDisplay(in: host.bounds).unwrap("Cannot capture results")
+					host.cacheDisplay(in: host.bounds, to: bitmap)
+					let rect = scroll.contentView.convert(scroll.contentView.bounds, to: host)
+					let top = host.isFlipped ? rect.minY : host.bounds.height - rect.maxY
+					let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+					for (x, y, referenceX): (CGFloat, CGFloat, CGFloat) in [
+						(rect.minX + 2, top + 8, 2),
+						(rect.minX + 2, top + 80, 2),
+						(rect.maxX - 2, top + 8, 2),
+						(rect.minX + 2, top + rect.height - 2, 6),
+						(rect.maxX - 2, top + rect.height - 2, 6)
+					] {
+						let actual = try (bitmap.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB))
+							.unwrap("Cannot read table pixels")
+						// Compare rendered swatches so display color profiles do not affect the geometry checks.
+						let expected = try (bitmap.colorAt(x: Int(referenceX * scale), y: Int(2 * scale))?.usingColorSpace(.sRGB))
+							.unwrap("Cannot read table reference color")
+						try require(abs(actual.redComponent - expected.redComponent) < 0.02
+									&& abs(actual.greenComponent - expected.greenComponent) < 0.02
+									&& abs(actual.blueComponent - expected.blueComponent) < 0.02,
+									"\(label): table has empty margins or an uneven header at \(x), \(y): \(actual) instead of \(expected)")
+					}
+				}
+			}
+		}
+		print("PASS: result tables fill compact and enlarged views, headers span the first column, and large tables stay scrollable.")
+	}
+
+	@MainActor static func compactLayoutTest() throws {
+		let size = NSSize(width: 1232, height: 800)
+		let windowFrame = NSWindow.frameRect(forContentRect: NSRect(origin: .zero, size: size),
+											styleMask: [.titled, .closable, .resizable])
+		try require(windowFrame.height <= 850, "Window including the title bar must fit within 850 points")
+		for scheme in [ColorScheme.dark, .light] {
+			for mode in [MeasurementMode.comparison, .sprint] {
+				let fixture = try recordedSession(mode: mode)
+				for state in ["setup", "ready", "recording", "messages", "warnings", "retry", "empty", "charts", "table", "large-plan"] {
+					let model = model()
+					model.mode = mode
+					model.demo = true
+					model.connected = true
+					model.connectedPort = "/dev/cu.usbserial-130"
+					model.connectionStatus = Strings.Connection.sensorReady
+					if state != "setup" {
+						model.session = fixture
+						model.selected = fixture.attempts.last?.key
+						model.history = [fixture]
+						if state == "recording" {
+							let key = IterationKey(conditionID: fixture.conditions[0].id, number: 3)
+							try model.session?.start(key, uptime: 1000, date: Date())
+							model.selected = key
+						}
+						if state == "messages" {
+							model.error = "Тестовая ошибка подключения — показания не потеряны."
+							model.notice = "Тестовое предупреждение: неполная попытка исключена из расчётов."
+						}
+						if state == "warnings" {
+							model.selectedAttemptID = fixture.attempts[0].id
+						}
+						if state == "retry" {
+							let key = fixture.attempts[0].key
+							try model.session?.retry(key, uptime: 1000, date: Date())
+							model.selected = key
+						}
+						if state == "empty" {
+							model.selected = IterationKey(conditionID: fixture.conditions[0].id, number: 3)
+						}
+						if state == "charts" || state == "table" {
+							model.session?.finalize(uptime: 800, date: Date())
+						}
+						if state == "large-plan" {
+							let conditions = (1...20).map { Condition(name: "Локация \($0)", iterations: 50) }
+							model.session = MeasurementSession(mode: mode, conditions: conditions, duration: 180,
+															  timeout: 8, source: .demo, connectionDescription: "DEMO")
+							model.selected = IterationKey(conditionID: conditions[0].id, number: 1)
+						}
+					}
+					let host = NSHostingView(rootView: ContentView(model: model, colorScheme: .constant(scheme),
+																  resultsTab: state == "table" ? .table : .charts)
+						.meterAppearance(scheme))
+					let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -3000, y: -3000), size: size),
+										  styleMask: [.borderless], backing: .buffered, defer: false)
+					window.contentView = host
+					window.orderFront(nil)
+					defer { window.orderOut(nil) }
+					settle()
+					host.layoutSubtreeIfNeeded()
+					let label = "\(scheme) \(mode) \(state)"
+					try require(host.bounds.size == size, "\(label): window content resized beyond the target size")
+					try require(host.fittingSize.height <= size.height + 1,
+								"\(label): minimum height \(host.fittingSize.height) exceeds \(size.height)")
+					var sidebarOverflows = false
+					for scroll in scrollViews(in: host) {
+						let frame = scroll.convert(scroll.bounds, to: host)
+						try require(host.bounds.insetBy(dx: -1, dy: -1).contains(frame),
+									"\(label): scrolling region outside the window")
+						if let document = scroll.documentView {
+							let overflows = document.bounds.height > scroll.contentView.bounds.height + 1
+							if state == "large-plan", frame.maxX < 340 {
+								sidebarOverflows = sidebarOverflows || overflows
+							} else {
+								try require(!overflows,
+											"\(label): content needs vertical scrolling (\(document.bounds.height) > \(scroll.contentView.bounds.height))")
+							}
+							if state == "table" {
+								try require(document.bounds.width <= scroll.contentView.bounds.width + 1,
+											"\(label): default result columns require horizontal scrolling")
+							}
+						}
+					}
+					if state == "large-plan" {
+						try require(sidebarOverflows, "\(label): large plans must remain scrollable within the sidebar")
+					}
+				}
+			}
+		}
+		print("PASS: setup, recording, messages, charts and default iteration plans fit a 1232 x 800 window without vertical scrolling.")
+	}
+
 	@MainActor static func snapshot<V: View>(_ view: V, scheme: ColorScheme, size: NSSize, output: URL) throws {
 		let beganAt = Date()
 		let host = NSHostingView(rootView: view.meterAppearance(scheme))
@@ -209,6 +369,9 @@ struct AppearanceSmoke {
 		defer { window.orderOut(nil) }
 		settle()
 		host.layoutSubtreeIfNeeded()
+		if size == NSSize(width: 1232, height: 800) {
+			try require(host.bounds.size == size, "\(output.lastPathComponent): preview resized from \(size) to \(host.bounds.size)")
+		}
 		let bitmap = try host.bitmapImageRepForCachingDisplay(in: host.bounds).unwrap("Cannot capture the owned preview view")
 		host.cacheDisplay(in: host.bounds, to: bitmap)
 		let png = try bitmap.representation(using: .png, properties: [:]).unwrap("Cannot encode preview")
@@ -236,6 +399,8 @@ struct AppearanceSmoke {
 		for (condition, number, count) in [(0, 1, 180), (0, 2, 40), (1, 1, 180)] {
 			let start = Double(session.attempts.count * 200)
 			try session.start(IterationKey(conditionID: conditions[condition].id, number: number), uptime: start, date: date)
+			session.receive(SensorBatch(raw: Data("count;voltage_V;current_mA;power_W\n".utf8),
+									   lines: [TimedLine(value: .header, beganAt: start)], uptime: start, date: date))
 			for second in 0..<count {
 				let power = second == 90 ? 17 : 5 + sin(Double(second) / 12) + Double(condition)
 				let reading = SensorReading(count: UInt64(second), voltage: 5, current: 1000, power: power)
@@ -260,14 +425,15 @@ struct AppearanceSmoke {
 
 	@MainActor static func previews(folder: URL) throws {
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		let windowSize = NSSize(width: 1232, height: 800)
 		for scheme in [ColorScheme.dark, .light] {
 			let name = scheme == .dark ? "dark" : "light"
 			let model = model()
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-startup.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-startup.png"))
 			model.mode = .comparison
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-setup.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-setup.png"))
 			model.demo = true
 			model.connected = true
 			model.connectedPort = "Демонстрационный источник"
@@ -277,7 +443,7 @@ struct AppearanceSmoke {
 			model.error = "Тестовая ошибка подключения — показания не потеряны."
 			model.notice = "Тестовое предупреждение: неполная попытка исключена из расчётов."
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-chart.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-chart.png"))
 			try snapshot(PortSettingsView(model: model), scheme: scheme, size: NSSize(width: 620, height: 720),
 						 output: folder.appendingPathComponent("\(name)-settings.png"))
 			let recording = Self.model()
@@ -291,24 +457,26 @@ struct AppearanceSmoke {
 			try recording.session?.start(recordingKey, uptime: 1000, date: Date())
 			recording.selected = recordingKey
 			try snapshot(ContentView(model: recording, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-recording.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-recording.png"))
 			model.session?.finalize(uptime: 800, date: Date())
 			model.pendingWrites = 1
-			try snapshot(ContentView(model: model, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-results.png"))
+			try snapshot(ContentView(model: model, colorScheme: .constant(scheme), resultsTab: .table), scheme: scheme,
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-results.png"))
 			model.pendingWrites = 0
 			model.error = nil
 			model.notice = nil
+			try snapshot(ContentView(model: model, colorScheme: .constant(scheme), resultsTab: .table), scheme: scheme,
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-comparison-table.png"))
 			for (label, condition, number) in [("complete", 0, 1), ("incomplete", 0, 2), ("empty", 1, 3)] {
 				let id = try model.session.unwrap("Missing result preview").conditions[condition].id
 				model.select(IterationKey(conditionID: id, number: number))
 				try snapshot(ContentView(model: model, colorScheme: .constant(scheme), resultsTab: .charts), scheme: scheme,
-							 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-result-chart-\(label).png"))
+							 size: windowSize, output: folder.appendingPathComponent("\(name)-result-chart-\(label).png"))
 			}
 			model.select(try model.session.unwrap("Missing retry preview").attempts[0].key)
 			model.selectedAttemptID = model.session?.attempts[0].id
 			try snapshot(ContentView(model: model, colorScheme: .constant(scheme), resultsTab: .charts), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-result-chart-superseded.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-result-chart-superseded.png"))
 			try snapshot(SessionNameView(model: model, editing: true).padding(24).background(MeterPalette(colorScheme: scheme).page),
 						 scheme: scheme, size: NSSize(width: 1000, height: 100), output: folder.appendingPathComponent("\(name)-rename.png"))
 			let retrying = Self.model()
@@ -322,7 +490,7 @@ struct AppearanceSmoke {
 			try retrying.session?.retry(key, uptime: 1000, date: Date())
 			retrying.selected = key
 			try snapshot(ContentView(model: retrying, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1780), output: folder.appendingPathComponent("\(name)-remeasurement.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-remeasurement.png"))
 			let sprint = Self.model()
 			sprint.mode = .sprint
 			sprint.demo = true
@@ -330,14 +498,17 @@ struct AppearanceSmoke {
 			sprint.connectedPort = model.connectedPort
 			sprint.connectionStatus = model.connectionStatus
 			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1100), output: folder.appendingPathComponent("\(name)-sprint-setup.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-sprint-setup.png"))
 			sprint.session = try recordedSession(mode: .sprint)
-			sprint.session?.finalize(uptime: 800, date: Date())
 			sprint.selected = sprint.session?.attempts.last?.key
 			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme)), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1950), output: folder.appendingPathComponent("\(name)-sprint-table.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-sprint-measurement.png"))
+			sprint.session?.finalize(uptime: 800, date: Date())
+			sprint.selected = sprint.session?.attempts.last?.key
+			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme), resultsTab: .table), scheme: scheme,
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-sprint-table.png"))
 			try snapshot(ContentView(model: sprint, colorScheme: .constant(scheme), resultsTab: .charts), scheme: scheme,
-						 size: NSSize(width: 1120, height: 1950), output: folder.appendingPathComponent("\(name)-sprint-chart.png"))
+						 size: windowSize, output: folder.appendingPathComponent("\(name)-sprint-chart.png"))
 		}
 	}
 
@@ -351,6 +522,8 @@ struct AppearanceSmoke {
 			try sprintDeletionTest()
 			try contrastTests()
 			try clockTests()
+			try resultsLayoutTest()
+			try compactLayoutTest()
 			if CommandLine.arguments.count > 1 {
 				try require(CommandLine.arguments.count == 3, "Usage: appearance-smoke [output-folder built-app-bundle]")
 				let bundle = try Bundle(path: CommandLine.arguments[2]).unwrap("Cannot load the built app bundle")

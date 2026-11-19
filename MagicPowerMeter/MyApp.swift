@@ -22,7 +22,7 @@ import SwiftUI
 			ContentView(model: model, colorScheme: $colorScheme)
 				.meterAppearance(colorScheme)
 		}
-		.defaultSize(width: 1060, height: 1000)
+		.defaultSize(width: 1232, height: 800)
 		.commands {
 			CommandGroup(replacing: .appInfo) {
 				Button(Strings.UI.aboutApp) {
